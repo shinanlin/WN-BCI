@@ -16,6 +16,9 @@ class cntReader():
                 - session
     """
 
+    def dommy(self):
+        return
+
     def __init__(self, fileAdd, stiLen,srate=250) -> None:
         # file address
         self.fileAdd = fileAdd
