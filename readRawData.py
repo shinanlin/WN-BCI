@@ -6,9 +6,12 @@ import sys
 from scipy import signal
 import scipy.io as scio
 from tqdm import tqdm
+from autoreject import AutoReject
+import matplotlib.pyplot as plt
 
 class cntReader():
     """
+    cntReader has one permission:load .cnt file into pkls
     should be in the heriachy as :
     -exp
         - subject
@@ -16,10 +19,7 @@ class cntReader():
                 - session
     """
 
-    def dommy(self):
-        return
-
-    def __init__(self, fileAdd, stiLen,srate=250) -> None:
+    def __init__(self, fileAdd, stiLEN,srate=250,tstart=0) -> None:
         # file address
         self.fileAdd = fileAdd
         self.subjects = []
@@ -27,13 +27,15 @@ class cntReader():
         self.srate=srate
 
         # parameters
-        self.stiLen = stiLen
+        self.stiLEN = stiLEN
+        self.tstart = tstart
         self.cwd = sys.path[0]
 
         exp = self.fileAdd.split(os.sep)[-1]
         self.pickleAdd = os.path.join('curry', exp)
         if os.path.exists(self.pickleAdd) is False:
             os.makedirs(self.pickleAdd)
+            
         self.alreadyHave = os.listdir(self.pickleAdd)
 
     def readRaw(self):
@@ -42,7 +44,7 @@ class cntReader():
 
         for subINX, sub in enumerate(self.subList):
             # for subject level
-            subName = sub.split('/')[-1]
+            self.subName = sub.split('/')[-1]
 
             folderList = os.listdir(sub)
             if '.DS_Store' in folderList:
@@ -59,32 +61,14 @@ class cntReader():
                         sessionName = os.path.join(folder, sessionName)
                         # read continous raw data
                         raw = self._getSession(sessionName)
-
                         # split continous data into epoch
                         epoch = self.epochSplit(raw)
 
                         self.sessions.append(epoch)
 
             if self.sessions != []:
-                
-                X = np.concatenate([session['X']
-                                    for session in self.sessions], axis=0)
-                y = np.concatenate([session['y']
-                                    for session in self.sessions], axis=0)
-
-                restX = np.concatenate([session['restX']
-                                    for session in self.sessions], axis=0)
-                                    
-                channel = self.sessions[0]['channel']
-
-                sessions = dict(
-                    X=X,
-                    y=y,
-                    restX=restX,
-                    channel=channel
-                )
-
-                with open('%s/%s.pickle' % (self.pickleAdd, subName), "wb+") as fp:
+                sessions = np.concatenate(self.sessions)
+                with open('%s/%s.pickle' % (self.pickleAdd, self.subName), "wb+") as fp:
                     pickle.dump(sessions, fp, protocol=pickle.HIGHEST_PROTOCOL)
 
                 self.sessions = []
@@ -98,81 +82,108 @@ class cntReader():
             data_format='auto',
             preload=True,
             date_format='mm/dd/yy')
-
+        
         return raw
 
     def epochSplit(self, raw):
 
-        task_events, task,nontask_events,nontask = self.defineEvent(raw)
+        #从这里把区分开三种情况区分开
+        Events = self.defineEvent(raw)
+        DATA = []
 
-        taskEpoch = mne.Epochs(raw, task_events, event_id=task,
-                           tmin=0, tmax=self.stiLen, preload=True, baseline=None)
-        # downsample
- 
-        taskEpoch.resample(self.srate)
-        taskEpoch.filter(4,80)
+        # notch and filter
+        raw.notch_filter((50,100))
+        
+        for this_exp_events in  Events:
 
-        nonTaskEpoch = mne.Epochs(raw, nontask_events, event_id=nontask,
-                           tmin=0, tmax=10, preload=True, baseline=None)
+            tag, events, events_dict = this_exp_events
+            # 睁闭眼30s
+            winLEN = self.stiLEN
+            taskEpoch = mne.Epochs(raw, events, event_id=events_dict,
+                                   tmin=self.tstart, tmax=winLEN+self.tstart, preload=True, baseline=None)
+            taskEpoch.drop_channels(['Trigger'])
+            # downsample
+            taskEpoch.resample(self.srate)
+            taskEpoch._filename = raw.filenames[0]+os.sep+tag
 
-        nonTaskEpoch = nonTaskEpoch.resample(self.srate)
-        nonTaskEpoch.filter(4,80)
-        nonTaskEpoch = nonTaskEpoch.get_data()
+            X = taskEpoch.get_data()
+            chn = taskEpoch.ch_names
 
-        y = []
-        X = taskEpoch.get_data()
-        newd = {v: k for k, v in task.items()}
-        for event in task_events[:, -1]:
-            y.append(int(newd.get(event)))
-        y = np.array(y)
+            y= []
+            newd = {v: k for k, v in events_dict.items()}
+            for event in events:
+                y.append(int(newd.get(event[-1])))
+            DATA.append((tag,X,y,chn))
 
-        validChn = taskEpoch.ch_names[:-1]
-        data = dict(
-            X=X[:,:-1],
-            y=y,
-            restX=nonTaskEpoch[:,:-1],
-            channel=validChn
-        )
-        return data
+        return DATA
 
-    def correctEvent(self, raw):
+    def discardBad(self,epoch):
+        
+        picks = ['R1', 'R2', 'R3', 'R4', 'R5',
+                'L1', 'L2', 'L3', 'L4', 'L5']
+
+        epoch_ = epoch.copy()
+        picked = epoch_.pick(picks)
+
+        print('start auto rejection')
+
+        # maximum number of bad sensors in a non-rejected trial
+        n_interpolates = np.array([1,2,3])
+        # ρ the maximum number of sensors that can be interpolated
+        consensus_percs = np.linspace(0.2, 0.8, 5)
+        
+        ar = AutoReject(n_interpolates, consensus_percs,picks=picks,cv=8,
+                thresh_method='bayesian_optimization', random_state=42)
+        ar.fit(picked)
+
+        clean, reject_log = ar.transform(picked, return_log=True)
+        reject_plot = reject_log.plot(orientation='horizontal',show=False)
+
+        subFolder = self.dropFolder+os.sep+self.subName
+        if os.path.exists(subFolder) is False:
+            os.makedirs(subFolder)
+
+        this_drop_file = picked._filename.split('/')
+        this_drop_file = this_drop_file[-2].split('.')[0]+'_'+this_drop_file[-1]
+
+        plt.title(this_drop_file)
+        reject_plot.savefig('%s/%s.png'%(subFolder,this_drop_file), dpi=400, format='png')
+
+        return clean,reject_log
+
+    def correctEvent(self,raw):
 
         events, event_dict = mne.events_from_annotations(raw)
-        x = np.squeeze(raw['Trigger'][0])
-        onset = np.squeeze(np.argwhere(np.diff(x) > 0))
-        if onset != []:
-            events[:, 0] = onset[:len(events)]
-
         # 255是结束trigger,去掉结束trigger
-        valid_dict = {k: v for k, v in event_dict.items() if int(k) != 255}
-        valid_event = np.stack([e for e in events if e[-1] in [*valid_dict.values()]])
+        valid_dict = {k: v for k, v in event_dict.items() if int(k) < 255}
+        valid_event =  np.stack([e for e in events if e[-1] in [*valid_dict.values()]])
+
+        x = raw.get_data()[-1]
+        onset = np.squeeze(np.argwhere(np.diff(x)>0))
+
+        valid_event[:, 0] = onset[:len(valid_event)]
+
+        # 修正了trigger 位置之后只取任务event
+        valid_dict = {k: v for k, v in valid_dict.items() if int(k) < 100}
+        valid_event =  np.stack([e for e in valid_event if e[-1] in [*valid_dict.values()]])
 
         return valid_dict, valid_event
 
     def defineEvent(self, raw):
+        valid_dict, valid_event = self.correctEvent(raw)
 
-        event_dict, events = self.correctEvent(raw)
-        # 这一步是为了把符合条件的event取出来
-        task_dict = {k: v for k, v in event_dict.items() if int(k) < 100}
-        nontask_dict ={k: v for k, v in event_dict.items() if 90<=int(k) <= 150}
+        # 把符合条件的event取出来
+        Events = []
+        
+        ssevp_dict = {k: v for k, v in valid_dict.items() if int(k) > 40}
+        task_events =  [e for e in valid_event if e[-1] in [*ssevp_dict.values()]]
+        Events.append(('ssvep', task_events, ssevp_dict))
+            
+        wn_dict = {k: v for k, v in valid_dict.items() if int(k) <= 40}
+        task_events = [e for e in valid_event if e[-1] in [*wn_dict.values()]]
+        Events.append(('wn',task_events,wn_dict))
 
-        # keys = [int(key) for key in task.keys()]
-        # order = sorted(range(len(keys)), key=lambda k: keys[k])
-        # task = task[order]
-
-        task_events = []
-        for e in events:
-            if e[-1] in task_dict.values():
-                task_events.append(e)
-        task_events = np.stack(task_events)
-
-        nontask_events = []
-        for e in events:
-            if e[-1] in nontask_dict.values():
-                nontask_events.append(e)
-        nontask_events = np.stack(nontask_events)
-
-        return task_events, task_dict,nontask_events,nontask_dict
+        return Events
 
     def getSubject(self):
 
@@ -188,304 +199,95 @@ class cntReader():
                         for subName in subList]
 
 class datasetMaker():
-    def __init__(self, winLEN=4, afterCue=0.5, visualDelay=0.0, Scansys=0.0, BPsys=0.00, testSize=0) -> None:
-        self.srate = 250
-        self.winLEN = winLEN
-
-        self.afterCue = afterCue
-        self.visualDelay = visualDelay
-
-        # scan具有的系统延迟是0.048s-12个点
-        self.ScanDelay = (self.visualDelay+Scansys)
-        # bp具有的系统延迟是0.056s-14点
-        self.BPDelay = (self.visualDelay+BPsys)
-
-        self.channel = []
-        self.testSize = testSize
-
-    def initiation(self, para):
-
-        self.datadir = para.data_dir
-        self.savedir = para.dataset_dir
-        self.srate = para.down_frequency_sample
-
-        return self
-
-    def ensembleData(self):
-        data_list = os.listdir(path=self.datadir)
-        if '.DS_Store' in data_list:
-            data_list.remove('.DS_Store')
-        WholeSet = []
-        data_list = sorted(data_list)
-
-        for filename in tqdm(data_list):
-            if filename.split('.')[-1] == 'mat' and filename.split('.')[0] != 'Freq_Phase':
-
-                path = os.path.join(self.datadir, filename)
-                data = scio.loadmat(path)['data'][0][0]
-                raw_data = data['data']
-                freqs = data['freqs']
-                _, index = np.unique(freqs, return_index=True)
-                raw_data = raw_data[:, :, index, :]
-                _,_,classNUM,blockNUM = raw_data.shape
-                datasetName = filename.split('-')[0]
-                labels = np.repeat(np.arange(0,classNUM),blockNUM)
-                raw_data = raw_data.transpose((-2,-1,0,1))
-                raw_data = np.concatenate(raw_data,axis=0)
-                # 记录来自哪个数据集
-                if datasetName == 'Alpha':
-                    self.channel = [47, 53, 54, 55, 56, 57, 60, 61, 62]
-                    # ['PZ','PO5','PO3','POz','PO4','PO6','O1','OZ','O2']
-                    epochs = self.extractEpoch(
-                        data=raw_data,label=labels, delay=self.ScanDelay)
-                elif datasetName == 'Theta':
-                    self.channel = [18, 58, 44, 62, 45, 59, 8, 63, 9]
-                    epochs = self.extractEpoch(
-                        data=raw_data, label=labels,delay=self.BPDelay)
-                WholeSet.append(epochs)
-
-        self.splitDataset(WholeSet)
-
-        return
-
-    def splitDataset(self,wholeSet):
-
-        testSize = self.testSize
-        dataset = dict(
-            trainX = [],
-            trainy = [],
-            testX = [],
-            testy = []
-            )
-
-        for subData in wholeSet:
-
-            X = subData['X']
-            y = subData['y']
-
-            _class = np.unique(y)
-
-            sub = dict(
-                trainX = [],
-                trainy = [],
-                testX = [],
-                testy = []
-            )
-
-            for c in _class:
-
-                this_class_X = X[y==c]
-                this_class_y = y[y==c]
-                epochNUM = len(this_class_X)
-
-                # trainINX = np.arange(0,epochNUM-testSize)
-                # testINX = np.arange(epochNUM-testSize,epochNUM)
-                
-                testINX = np.arange(0, testSize)
-                trainINX = np.arange(testSize, epochNUM)
-
-
-                sub['trainX'].append(this_class_X[trainINX])
-                sub['trainy'].append(this_class_y[trainINX])
-                
-                sub['testX'].append(this_class_X[testINX])
-                sub['testy'].append(this_class_y[testINX])
-
-            dataset['trainX'].append(np.concatenate(sub['trainX'],axis=0))
-            dataset['trainy'].append(np.concatenate(sub['trainy'],axis=0))
-
-            dataset['testX'].append(np.concatenate(sub['testX'],axis=0))
-            dataset['testy'].append(np.concatenate(sub['testy'],axis=0))     
-
-
-        if not os.path.exists(self.savedir):
-            os.makedirs(self.savedir)
-        datasetName = os.path.join(self.savedir, 'WholeSet.pickle')
-        with open(datasetName, "wb+") as fp:
-            pickle.dump(dataset, fp, protocol=pickle.HIGHEST_PROTOCOL)
-
-        return
-
-    def extractEpoch(self,data,label,delay):
-        
-        X_ = []
-        Y_ = []
-
-        ls = np.unique(label)
-        for l in ls:
-            X_.append(data[label == l])
-            blockNUM = np.sum(label == l)
-            Y_.append([l for _ in range(blockNUM)])
-
-        # 每一个block的训练数目不一样
-        X = np.concatenate(X_,axis=0)
-        Y = np.concatenate(Y_,axis=0)
-
-        srate = self.srate
-
-        gazeLen = round((self.winLEN)*srate)
-
-        delay = round((self.afterCue+delay)*srate)
-
-        segment_data = np.arange(delay,
-                                 delay+gazeLen)
-
-        data = X[:,self.channel,:]
-        data = data[:,:,segment_data]
-
-        filtered = np.zeros_like(data)
-
-        for i,epoch in enumerate(data):
-            filtered[i] = self._filterEpoch(epoch)
-
-        wholeset = dict(
-            X = filtered,
-            y = Y
-        )
-
-        return wholeset
-
-    def _filterEpoch(self, epoch):
-
-        # # band pass
-        fs = 250
-        b, a = signal.butter(N=5, Wn=[1, 100], fs=fs, btype='bandpass')
-
-        filtered = np.zeros(epoch.shape)
-
-        for chINX, chn in enumerate(epoch):
-            # 去除基线
-            chn = chn - chn.mean()
-            # 滤波 [1,100]
-            chn = signal.filtfilt(b, a, chn)
-            # 归一化
-            filtered[chINX] = self.minMax(chn,[-1, 1])
-
-        return filtered
-
-    def minMax(self, x, scale):
-        nmin, nmax = scale
-        x = (x-min(x))/(max(x)-min(x))*(nmax-nmin)+nmin
-        return x
-
-class curryDataset(datasetMaker):
     
-    def __init__(self, exp='exp-1',winLEN=2, afterCue=0, visualDelay=0, srate=240,curryAdd = 'curry') -> None:
-        
-        cwd = sys.path[0]
+    def __init__(self, exp='exp-1',winLEN=2,srate=250,curryAdd = 'curry',tstart=0):
+
         self.exp = exp
-        self.savedir = os.path.join(cwd, 'datasets')
-        self.curryAdd = os.path.join(cwd, curryAdd,self.exp)
-        self.stiAdd = os.path.join(cwd,'stimulation',self.exp)
-        super().__init__(winLEN=winLEN, afterCue=afterCue, visualDelay=visualDelay)
-        
         self.srate=srate
+        self.winLEN = winLEN
         self.sampleLEN = round(self.srate*self.winLEN)
+        self.tstart = tstart
+        cwd = sys.path[0]
+        self.rawAdd = os.path.join(cwd, 'raw',self.exp)
+        self.curryAdd = os.path.join(cwd, curryAdd,self.exp)
+        self.saveAdd = os.path.join(cwd, 'datasets')
+        self.stiAdd = os.path.join(cwd,'stimulation',self.exp)
 
     def readCurry(self):
-        rawCurry = 'raw'+os.sep+self.exp
-        loader = cntReader(rawCurry,stiLen=self.winLEN,srate=self.srate)
+        loader = cntReader(self.rawAdd,stiLEN=self.winLEN,srate=self.srate,tstart=self.tstart)
         loader.readRaw()
 
-    def readStimulation(self,subName):
+    def readSTI(self,fileName):
 
-        path = self.stiAdd + os.sep + subName
-        stiFile = os.listdir(path)
-        stiFile = sorted(stiFile)
+        path = self.stiAdd + os.sep + fileName
+        STI = scio.loadmat(path)['WN'].T
+        STI  = np.repeat(STI,4,axis=-1)
+        return STI
 
-        INFO = []
-        for sti in stiFile:
 
-            if sti.split('.')[-1]=='mat':
-
-                sti = os.path.join(path, sti)
-                info = scio.loadmat(sti)
-
-                INFO.append(dict(
-                    record = info['record'],
-                    stimulus=info['stimulus'],
-                    stiOrder=info['index_code']
-                ))
-            
-        return INFO
-
-    def ensembleData(self):
+    def ensemble(self):
         # readData
         self.readCurry()
 
-        data_list = os.listdir(path=self.curryAdd)
-        if '.DS_Store' in data_list:
-            data_list.remove('.DS_Store')
-        WholeSet = []
-        data_list = sorted(data_list)
+        dataList = os.listdir(path=self.curryAdd)
+        if '.DS_Store' in dataList:
+            dataList.remove('.DS_Store')
+        wholeSet = []
+        dataList = sorted(dataList)
 
-        for filename in tqdm(data_list):
+        STI = self.readSTI('WN_60HZ.mat')
+
+        for filename in tqdm(dataList):
             
             subName = filename.split('.')[0]
 
             # read stimulation
-            stimulation = self.readStimulation(subName)
-
             path = os.path.join(self.curryAdd, filename)
-
             with open(path, "rb") as fp:
-                data = pickle.load(fp)
+                sessions = pickle.load(fp)
+            ssvep,wn = [],[]
+            for session in sessions:
+                tag,X,y,chnNames = session
+                if tag == 'ssvep':
+                    ssvep.append(session)
+                elif tag == 'wn':
+                    wn.append(session)
+
             
-            # reorder
-            order = np.argsort(data['y'])
-            y = data['y'][order]
-            X = data['X'][order]
-            s = stimulation[0]['stimulus'][:self.sampleLEN].T
-            stimulus = np.stack([s[i-1] for i in y])
+            ssvep = dict(
+                X = np.concatenate([data[1] for data in ssvep], axis=0),
+                y = np.hstack([data[2] for data in ssvep]),
+                STI = [])
+
+
+            wn = dict(
+                X = np.concatenate([data[1] for data in wn], axis=0),
+                y = np.hstack([data[2] for data in wn]),
+                STI = STI[:,:self.sampleLEN])
+
             sub = dict(
-                X=X,
-                y = y,
-                restX = data['restX'],
-                stimulus=stimulus,
-                dropFrame = stimulation[0]['record'],
-                tags = np.repeat(['wn','mseq','ssvep'],20),
-                channel=data['channel'],
+                ssvep = ssvep,
+                wn = wn,
+                channel = chnNames,
                 name = subName,
             )
-            # 记录来自哪个数据集
-            WholeSet.append(sub)
+            # # 记录来自哪个数据集
+            wholeSet.append(sub)
 
-        if not os.path.exists(self.savedir):
-            os.makedirs(self.savedir)
-        datasetName = os.path.join(self.savedir, '%s.pickle'%self.exp)
+        if not os.path.exists(self.saveAdd):
+            os.makedirs(self.saveAdd)
+        datasetName = os.path.join(self.saveAdd, '%s.pickle'%self.exp)
         with open(datasetName, "wb+") as fp:
-            pickle.dump(WholeSet, fp, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(wholeSet, fp, protocol=pickle.HIGHEST_PROTOCOL)
 
         return 
 
-    def discardBad(self,X,y):
-        picked_X = []
-        picked_y = []
-
-        old_label = None
-
-        for epochINX,(epoch,label) in enumerate(zip(X,y)):
-                
-            while (old_label==label):
-                break
-            else:
-                if (epochINX == 0):
-                    pass
-                else:
-                    picked_X.append(old_epoch)
-                    picked_y.append(old_label)
-
-            old_label = label
-            old_epoch = epoch
-
-        picked_X = np.stack(picked_X)
-        picked_y = np.stack(picked_y)
-        return picked_X,picked_y
-
 if __name__ == '__main__':
 
-    exp = 'exp-2'
-    winLEN = 3
-    srate = 240
-    curryMaker = curryDataset(exp=exp,winLEN=winLEN,srate=srate)
-    curryMaker.ensembleData()
+    exp = 'offline'
+    winLEN = 1
+    srate = 500
+    
+    curryMaker = datasetMaker(exp=exp, winLEN=winLEN,
+                              srate=srate)
+    curryMaker.ensemble()

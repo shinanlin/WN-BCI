@@ -21,7 +21,7 @@ from statsmodels.stats.weightstats import ttest_ind
 
 class TRCA():
 
-    def __init__(self, n_components=1, n_band=5, montage=20, winLEN=2, lag=35,srate=240):
+    def __init__(self, n_components=1, n_band=5, montage=40, winLEN=2, lag=35,srate=250):
 
         self.n_components = n_components
         self.n_band = n_band
@@ -450,7 +450,7 @@ class fbCCA():
 
 class Matching(fbCCA):
 
-    def __init__(self, n_components=1, n_band=5, srate=240, conditionNUM=20, lag=35, winLEN=2,ampNUM=10):
+    def __init__(self, n_components=1, n_band=5, srate=250, conditionNUM=40, lag=35, winLEN=2,ampNUM=2):
         self.ampNUM = ampNUM
         super().__init__(n_components, n_band, srate, conditionNUM, lag, winLEN)
 
@@ -661,168 +661,6 @@ class cusTRCA(TRCA):
         Bands = np.stack(Bands)
 
         return Bands
-
-
-class tTRCA(cusTRCA,TRCA):
-    # sin/cos templates with transfer templlates
-
-    def __init__(self, winLEN=1,lag=35):
-        super().__init__(winLEN=winLEN, lag=lag)
-
-    def fit(self, X, y):
-
-        self._classes = np.unique(y)
-
-        # crop
-        X = X[:, :, self.lag:self.lag+self.winLEN]
-
-        epochN, chnN, _ = X.shape
-
-        self.ref = fbCCA().get_reference(self.srate, self.frequncy, self.n_band, self.winLEN)
-
-        # filterbank
-        X = self.subBand(X)
-
-        self.filter = np.zeros((self.n_band, len(self._classes), chnN))
-        self.evokeds = np.zeros((len(self._classes), self.n_band, chnN, self.winLEN))
-
-        for classINX in self._classes:
-
-            this_class_data = X[y == classINX]
-            this_class_data = this_class_data.transpose((1, 0, -2, -1))
-
-            for fbINX, this_band in enumerate(this_class_data):
-                # personal template
-                self.evokeds[self._classes==classINX, fbINX] = np.mean(this_band, axis=0)
-                # trca weight
-                weight = self.computer_trca_weight(this_band)
-                # fbCCA part
-                self.filter[fbINX, self._classes==classINX] = weight[:,
-                                                      :self.n_components].squeeze()
-
-        return self
-
-
-    def dyStopping(self, X, former_win):
-
-        # 判断要设置什么窗
-        # p_val = 0.0025
-        # 和在线保持一致，在线设置了0.005
-        
-        p_val = 0.005
-
-        dyStopping = np.arange(0.4, former_win+0.1, step=0.2)
-
-        for ds in dyStopping:
-
-            ds = int(ds*self.srate)
-            self.predict(X[:, :, :ds+self.lag])
-
-            score = self.confidence < p_val
-            pesudo_acc = np.sum(score != 0)/len(score)
-            print('mean confidence:', self.confidence.mean())
-            print('pesudo_acc{pesudo_acc}s'.format(pesudo_acc=pesudo_acc))
-
-            # if pesudo_acc >= 0.9:
-            #     boostWin = float(ds/self.srate)
-            #     break
-        
-            if self.confidence.mean() < p_val:
-                boostWin = float(ds/self.srate)
-                break
-
-        # 难分的epoch下一次继续
-        n = np.argsort(self.confidence)
-        difficult = X[n[-5:]]
-
-        if not 'boostWin' in locals().keys():
-            boostWin = float('%.1f'%dyStopping[-1])
-
-        return boostWin, difficult
-
-    def predict(self, X):
-
-        if len(X.shape) < 3:
-            X = np.expand_dims(X, axis=0)
-
-        
-        # filterbank
-        X = self.subBand(X)
-
-        # data augumentation
-        Xs = self.cropData(X)
-
-        epochN,_,_,N = Xs[0].shape
-        
-
-        fb_coefs = np.expand_dims(np.arange(1, self.n_band+1)**-1.25+0.25, axis=0)
-        # coff for personal template 
-        personR = np.zeros((epochN, len(Xs), len(self.montage)))
-        # coff for sine/cosine template
-        refR = np.zeros_like(personR)
-
-        for driftINX,Xd in enumerate(Xs):
-            # every drift
-            for epochINX,epoch in enumerate(Xd):
-                
-                r1 = np.zeros((self.n_band, len(self.montage))) #trca
-                r2 = copy.deepcopy(r1) #fbcca
-
-                for fbINX, this_band in enumerate(epoch):
-
-                        cca = CCA(n_components=1)
-
-                        for (classINX, ref) in zip(self.montage,self.ref):
-
-                            if classINX in self._classes:
-                                # test epoch might be shorter than evokeds
-
-                                evoked = self.evokeds[self._classes==classINX].squeeze()
-                                template = evoked[fbINX, :, :N]
-                                w = self.filter[fbINX,:].T
-                                #trca : correlation w/ personal template
-                                coffPerson = np.corrcoef(
-                                    np.dot(this_band.T, w).reshape(-1), 
-                                    np.dot(template.T, w).reshape(-1)
-                                    )
-                                r1[fbINX, classINX] = coffPerson[0, 1]
-
-                            ref = ref[:,:N]
-                            # fbcca : correlation w/ sine/cosine template
-                            u, v = cca.fit_transform(ref.T, this_band.T)
-                            coffRef = np.corrcoef(u.T, v.T)
-
-                            r2[fbINX, classINX] = coffRef[0, 1]
-                # fb coff dot product :[1,40]
-                r1 = fb_coefs.dot(r1)
-                r2 = fb_coefs.dot(r2)
-
-                personR[epochINX, driftINX] = r1
-                refR[epochINX,driftINX] = r2
-        
-        # missing template
-        missing = np.setdiff1d(self.montage, self._classes)  # missing filter
-        personR[:,:, missing] = 0
-
-        # evaluate confidence
-        addR = personR + refR
-
-        H, predicts = self.evalConfidence(addR)
-
-        H_personal, self.selfPredict = self.evalConfidence(personR)
-
-        H_ref, self.fbPredict = self.evalConfidence(refR)
-
-        self.confidence = H
-        self.confidencePer = H_personal
-        self.confidenceRef = H_ref
-        # choose the winner
-        finalR = [predicts[i, np.argmin(H[i, :])] for i in range(H.shape[0])]
-
-        # finalR = self._classes[finalR]
-
-        return finalR
-
 
 
 
