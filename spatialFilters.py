@@ -16,6 +16,7 @@ from sklearn.metrics import accuracy_score
 from scipy import stats, signal
 import math
 import copy
+from NRC import NRC
 import pandas as pd
 from statsmodels.stats.weightstats import ttest_ind
 
@@ -450,8 +451,9 @@ class fbCCA():
 
 class Matching(fbCCA):
 
-    def __init__(self, n_components=1, n_band=5, srate=250, conditionNUM=40, lag=35, winLEN=2,ampNUM=2):
-        self.ampNUM = ampNUM
+    def __init__(self, n_components=1, n_band=5, srate=250, conditionNUM=40, lag=35, winLEN=2,tmin=0,tmax=0.5):
+        self.tmin = tmin
+        self.tmax = tmax
         super().__init__(n_components, n_band, srate, conditionNUM, lag, winLEN)
 
     def fit(self, S, y):
@@ -459,12 +461,20 @@ class Matching(fbCCA):
         # load stimulus waves
 
         self._classes = np.unique(y)
-
+        
         S = np.stack([S[y==i].mean(axis=0) for i in self._classes])
     
-        self.evokeds  = self.augument(S)
+        X_  = self.subBand(X)
+
+        rf = NRC(srate=self.srate,tmin=self.tmin,tmax=self.tmax)
+        rf.fit()
+        
+
+        NRC
 
         return self
+
+
 
     def augument(self,S):
 
@@ -478,6 +488,24 @@ class Matching(fbCCA):
         S_ = np.concatenate(ampX,axis=1)
         
         return S_
+
+    def subBand(self,X):
+        
+        Bands = []
+
+        for epoch in X:
+
+            filtered = []
+
+            for fb in range(self.n_band):
+            
+                filtered.append(np.squeeze(self.filterbank(epoch,self.srate,fb)))
+
+            Bands.append(np.stack(filtered))
+
+        Bands = np.stack(Bands)
+
+        return Bands
 
 
 class cusTRCA(TRCA):
@@ -667,9 +695,9 @@ class cusTRCA(TRCA):
 if __name__ == '__main__':
 
 
-
-    y = np.arange(1,21,1)
-    S = np.random.random((20, 720))
+    X = np.random.random((20,9,240))
+    y = np.arange(1,41,1)
+    S = np.random.random((40, 240))
 
     model = Matching(winLEN=2)
     model.fit(S,y)

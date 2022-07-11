@@ -286,7 +286,7 @@ if __name__ == '__main__':
 
     exp = 'offline'
     winLEN = 1
-    srate = 500
+    srate = 240
     
     curryMaker = datasetMaker(exp=exp, winLEN=winLEN,
                               srate=srate)

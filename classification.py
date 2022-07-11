@@ -14,13 +14,14 @@ from scipy.stats import stats
 from spatialFilters import TRCA, Matching,fbCCA
 
 
-srate = 500
+srate = 250
 expName = 'offline'
 chnNames = ['PZ', 'PO5', 'POZ', 'PO4', 'PO6', 'O1', 'OZ']
 
+
 dir = './datasets/%s.pickle' % expName
 
-winLENs = np.arange(0.2,1,step=.2)
+winLENs = np.arange(0.2,1,step=.1)
 
 with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
@@ -49,7 +50,7 @@ for sub in tqdm(wholeset):
             # predict
             for winLEN in winLENs:
 
-                model = TRCA(winLEN=winLEN,lag=75,srate=srate)
+                model = TRCA(winLEN=winLEN,lag=35,srate=srate)
                 model.fit(X_train,y_train)
                 score = model.score(X_test,y_test)
                 
@@ -70,7 +71,10 @@ for sub in tqdm(wholeset):
                 frames.append(frame)
 
         df = pd.concat(frames,axis=0,ignore_index=True)
-        df.to_csv('results/%s/classification.csv' % (expName))
+        add = 'results/%s/%s' % (expName,subName)
+        if not os.path.exists(add):
+            os.makedirs(add)
+        df.to_csv(add+os.sep+'classification.csv')
 
 
 

@@ -65,10 +65,10 @@ def returnSpec(s,srate=250):
     return f, t, Sxx
 
 
-def lowFilter(s,srate=250):
+def lowFilter(s,srate=250,band=[3,15]):
     # # band pass
     fs = srate
-    b, a = signal.butter(N=3, Wn=[3, 15], fs=fs, btype='bandpass')
+    b, a = signal.butter(N=3, Wn=band, fs=fs, btype='bandpass')
     fS = signal.filtfilt(b, a, s,axis=-1)
     return fS
 

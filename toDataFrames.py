@@ -14,7 +14,7 @@ import random
 srate = 240
 tmin, tmax = -0.2, .5
 expName = 'offline'
-chnNames = ['PZ', 'PO5', 'POZ', 'PO4', 'PO6', 'O1', 'OZ']
+chnNames = ['PZ', 'PO5', 'POZ', 'PO4', 'PO6', 'O1', 'OZ','O2']
 
 random.seed(253)
 
@@ -47,9 +47,6 @@ for sub in tqdm(wholeset):
     csr = decoder.Csr[:,:,np.newaxis,:]
     recoder = recordModule(srate=srate,sub=sub['name'],chn=chnNames,exp=expName)
     recoder.recordKernel(csr, y, 'shuffled', tmin, tmax)
-
-
-
 
     recoder.recordEEG(X,y) 
 
