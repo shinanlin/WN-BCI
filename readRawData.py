@@ -9,6 +9,14 @@ from tqdm import tqdm
 from autoreject import AutoReject
 import matplotlib.pyplot as plt
 
+class Config():
+    def __init__(self, exp='exp-1', srate=250, tstart=0, winLEN=1, event_dict={'wn': 1, 'ssvep': 2, 'rest': 3}) -> None:
+        self.exp = exp
+        self.srate = srate
+        self.tstart = tstart
+        self.winLEN = winLEN
+        self.event_dict = event_dict
+        pass
 class cntReader():
     """
     cntReader has one permission:load .cnt file into pkls
@@ -19,16 +27,17 @@ class cntReader():
                 - session
     """
 
-    def __init__(self, fileAdd, stiLEN,srate=250,tstart=0) -> None:
+    def __init__(self, fileAdd, config) -> None:
         # file address
         self.fileAdd = fileAdd
         self.subjects = []
         self.sessions = []
-        self.srate=srate
+        self.srate=config.srate
+        self.event_dict = config.event_dict
 
         # parameters
-        self.stiLEN = stiLEN
-        self.tstart = tstart
+        self.stiLEN = config.winLEN
+        self.tstart = config.tstart
         self.cwd = sys.path[0]
 
         exp = self.fileAdd.split(os.sep)[-1]
@@ -113,6 +122,7 @@ class cntReader():
             newd = {v: k for k, v in events_dict.items()}
             for event in events:
                 y.append(int(newd.get(event[-1])))
+            y = np.array(y)
             DATA.append((tag,X,y,chn))
 
         return DATA
@@ -154,34 +164,26 @@ class cntReader():
     def correctEvent(self,raw):
 
         events, event_dict = mne.events_from_annotations(raw)
+        # discard events
         # 255是结束trigger,去掉结束trigger
-        valid_dict = {k: v for k, v in event_dict.items() if int(k) < 255}
-        valid_event =  np.stack([e for e in events if e[-1] in [*valid_dict.values()]])
 
         x = raw.get_data()[-1]
         onset = np.squeeze(np.argwhere(np.diff(x)>0))
+        events[:, 0] = onset[:len(events)]
 
-        valid_event[:, 0] = onset[:len(valid_event)]
-
-        # 修正了trigger 位置之后只取任务event
-        valid_dict = {k: v for k, v in valid_dict.items() if int(k) < 100}
-        valid_event =  np.stack([e for e in valid_event if e[-1] in [*valid_dict.values()]])
-
-        return valid_dict, valid_event
+        return event_dict, events
 
     def defineEvent(self, raw):
-        valid_dict, valid_event = self.correctEvent(raw)
+        event_dict, events = self.correctEvent(raw)
 
         # 把符合条件的event取出来
         Events = []
-        
-        ssevp_dict = {k: v for k, v in valid_dict.items() if int(k) > 40}
-        task_events =  [e for e in valid_event if e[-1] in [*ssevp_dict.values()]]
-        Events.append(('ssvep', task_events, ssevp_dict))
+
+        for key,value in self.event_dict.items():
             
-        wn_dict = {k: v for k, v in valid_dict.items() if int(k) <= 40}
-        task_events = [e for e in valid_event if e[-1] in [*wn_dict.values()]]
-        Events.append(('wn',task_events,wn_dict))
+            task_dict = {k: v for k, v in event_dict.items() if int(k) in value}
+            task_events = [e for e in events if e[-1] in [*task_dict.values()]]
+            Events.append((key, task_events, task_dict))
 
         return Events
 
@@ -200,27 +202,28 @@ class cntReader():
 
 class datasetMaker():
     
-    def __init__(self, exp='exp-1',winLEN=2,srate=250,curryAdd = 'curry',tstart=0):
+    def __init__(self, config):
 
-        self.exp = exp
-        self.srate=srate
-        self.winLEN = winLEN
+        self.config = config
+        self.exp = config.exp
+        self.srate=config.srate
+        self.winLEN = config.winLEN
         self.sampleLEN = round(self.srate*self.winLEN)
-        self.tstart = tstart
+        self.tstart = config.tstart
         cwd = sys.path[0]
         self.rawAdd = os.path.join(cwd, 'raw',self.exp)
-        self.curryAdd = os.path.join(cwd, curryAdd,self.exp)
+        self.curryAdd = os.path.join(cwd, 'curry',self.exp)
         self.saveAdd = os.path.join(cwd, 'datasets')
         self.stiAdd = os.path.join(cwd,'stimulation',self.exp)
 
     def readCurry(self):
-        loader = cntReader(self.rawAdd,stiLEN=self.winLEN,srate=self.srate,tstart=self.tstart)
+        loader = cntReader(self.rawAdd,self.config)
         loader.readRaw()
 
     def readSTI(self,fileName):
 
         path = self.stiAdd + os.sep + fileName
-        STI = scio.loadmat(path)['WN'].T
+        STI = scio.loadmat(path)['optimal']
         STI  = np.repeat(STI,4,axis=-1)
         return STI
 
@@ -235,7 +238,6 @@ class datasetMaker():
         wholeSet = []
         dataList = sorted(dataList)
 
-        STI = self.readSTI('WN_60HZ.mat')
 
         for filename in tqdm(dataList):
             
@@ -245,32 +247,23 @@ class datasetMaker():
             path = os.path.join(self.curryAdd, filename)
             with open(path, "rb") as fp:
                 sessions = pickle.load(fp)
-            ssvep,wn = [],[]
+
+            sub = dict()
             for session in sessions:
                 tag,X,y,chnNames = session
-                if tag == 'ssvep':
-                    ssvep.append(session)
-                elif tag == 'wn':
-                    wn.append(session)
+                if tag == 'wn':
+                    STI = self.readSTI('optimal.mat')
+                else:
+                    STI = None
+                exp = dict(
+                    X = X,
+                    y = y,
+                    STI = STI
+                )
+                sub[tag] = exp
+            sub['channel'] = chnNames
+            sub['name'] = subName
 
-            
-            ssvep = dict(
-                X = np.concatenate([data[1] for data in ssvep], axis=0),
-                y = np.hstack([data[2] for data in ssvep]),
-                STI = [])
-
-
-            wn = dict(
-                X = np.concatenate([data[1] for data in wn], axis=0),
-                y = np.hstack([data[2] for data in wn]),
-                STI = STI[:,:self.sampleLEN])
-
-            sub = dict(
-                ssvep = ssvep,
-                wn = wn,
-                channel = chnNames,
-                name = subName,
-            )
             # # 记录来自哪个数据集
             wholeSet.append(sub)
 
@@ -284,10 +277,10 @@ class datasetMaker():
 
 if __name__ == '__main__':
 
-    exp = 'offline'
-    winLEN = 1
-    srate = 240
-    
-    curryMaker = datasetMaker(exp=exp, winLEN=winLEN,
-                              srate=srate)
+    event_dict = dict(
+        wn=np.arange(1, 161),
+        rest = [200]
+    )
+    config = Config(exp='sweep',srate=240,winLEN=1,event_dict=event_dict)
+    curryMaker = datasetMaker(config)
     curryMaker.ensemble()

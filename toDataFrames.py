@@ -13,8 +13,8 @@ import random
 
 srate = 240
 tmin, tmax = -0.2, .5
-expName = 'offline'
-chnNames = ['PZ', 'PO5', 'POZ', 'PO4', 'PO6', 'O1', 'OZ','O2']
+expName = 'sweep'
+chnNames = ['PZ', 'PO5', 'POZ', 'PO4','PO3','PO6', 'O1', 'OZ','O2']
 
 random.seed(253)
 
