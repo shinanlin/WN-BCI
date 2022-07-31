@@ -162,7 +162,7 @@ class RegularizedRF(NRC):
         self.mTRF = mTRF
         super().__init__(srate, tmin, tmax, alpha)
 
-    def fit(self, R, S):
+    def fit(self, X, y):
 
         # normlization
         # R, S = stats.zscore(R, axis=-1), stats.zscore(S, axis=-1)
@@ -426,8 +426,8 @@ class recordModule():
 
     def _addTags(self,conditionINX):
 
-        conditionNUM = 40
-        tagNames = np.repeat(['wn','ssvep'],conditionNUM)
+        conditionNUM = 160
+        tagNames = np.repeat(['ssvep','wn'],conditionNUM)
         tags = [tagNames[i-1] for i in conditionINX.to_numpy()]
 
         return tags

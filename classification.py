@@ -15,71 +15,80 @@ from scipy.stats import stats
 from spatialFilters import TRCA, Matching,fbCCA
 import random
 
-srate = 250
-expName = 'sweep'
-chnNames = ['PZ','PO5', 'POZ', 'PO3','PO4', 'PO6', 'O1', 'OZ','O2']
+# parameters
+srate = 240
+expName = 'dense'
+chnNames = ['PZ','PO5', 'POZ', 'PO3','PO4', 'PO6','PO7','PO8', 'O1', 'OZ','O2']
+seedNUM = 200
+targetNUM = 40
+poolNUM = 100
+saveFILE = 'classification-densse-random.csv'
+winLENs = [0.3]
+# winLENs = np.arange(0.2,0.7,step=.1)
 
 
 dir = './datasets/%s.pickle' % expName
-
-# winLENs = np.arange(0.2,1,step=.1)
-winLENs = [0.3]
-
 with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
 
-frames = []
 for sub in tqdm(wholeset):
+    
+    frames = []
 
     subName = sub['name']
     chnINX = [sub['channel'].index(i) for i in chnNames]
 
-    for tag in ['wn']:
+    add = 'results/%s/%s' % (expName,subName)        
+    if os.path.exists(add+os.sep+saveFILE):
+        pass
+    else:
+        for tag in ['wn', 'ssvep']:
 
-        X = sub[tag]['X'][:,chnINX]
-        y = sub[tag]['y']
-        # S = np.stack([sub[tag]['STI'][i-1] for i in y])
-        
-        for seed in tqdm(np.arange(1e3)):
+            y = sub[tag]['y']
+            X = sub[tag]['X'][-len(y):,chnINX]
+            S = np.array(sub[tag]['STI'])
+            
+            for seed in tqdm(np.arange(seedNUM)):
 
-            random.seed(seed)
-            picked = random.sample(range(160),40)
-            X_picked = np.concatenate([X[y == i+1] for i in picked])
-            y_picked = np.concatenate([y[y == i+1] for i in picked])
+                random.seed(seed)
+                picked = random.sample(np.unique(y).tolist(), targetNUM)
 
-
-            stratSplit = StratifiedShuffleSplit(n_splits=6, test_size=1/6, random_state=42)
-
-            for cv, (train_index, test_index) in enumerate(stratSplit.split(X_picked, y_picked)):
-                X_train, X_test = X_picked[train_index], X_picked[test_index]
-                # S_train, S_test = S[train_index], S[test_index]
-                y_train, y_test = y_picked[train_index], y_picked[test_index]
+                X_picked = np.concatenate([X[y == i] for i in picked])
+                y_picked = np.concatenate([y[y == i] for i in picked])
+                S_picked = np.concatenate([S[S == i] for i in picked])
 
 
-                # predict
-                for winLEN in winLENs:
+                stratSplit = StratifiedShuffleSplit(n_splits=6, test_size=1/6, random_state=42)
 
-                    model = TRCA(winLEN=winLEN,lag=35,srate=srate)
-                    model.fit(X_train,y_train)
-                    score = model.score(X_test,y_test)
-                    
-                    
-                    frame = pd.DataFrame({
-                        'score': [score],
-                        'winLEN':[winLEN],
-                        'tag':[tag],
-                        'cv':[cv],
-                        'seed':[seed],
-                        'subject':[subName]
-                    })
+                for cv, (train_index, test_index) in enumerate(stratSplit.split(X_picked, y_picked)):
+                    X_train, X_test = X_picked[train_index], X_picked[test_index]
+                    # S_train, S_test = S[train_index], S[test_index]
+                    y_train, y_test = y_picked[train_index], y_picked[test_index]
 
-                    frames.append(frame)
+                    # predict
+                    for winLEN in winLENs:
 
-            df = pd.concat(frames,axis=0,ignore_index=True)
-            add = 'results/%s/%s' % (expName,subName)
-            if not os.path.exists(add):
-                os.makedirs(add)
-            df.to_csv(add+os.sep+'classification.csv')
+                        model = TRCA(winLEN=winLEN,lag=35,srate=srate,montage=targetNUM)
+                        model.fit(X_train,y_train)
+                        score = model.score(X_test,y_test)
+                        
+                        
+                        frame = pd.DataFrame({
+                            'score': [score],
+                            'winLEN':[winLEN],
+                            'tag':[tag],
+                            'cv':[cv],
+                            'seed':[seed],
+                            'subject':[subName],
+                        })
+
+                        frames.append(frame)
+
+                    df = pd.concat(frames,axis=0,ignore_index=True)
+                    add = 'results/%s/%s' % (expName,subName)
+                    if not os.path.exists(add):
+                        os.makedirs(add)
+                    df.to_csv(add+os.sep+saveFILE)
 
 
 

@@ -176,6 +176,7 @@ class cntReader():
     def defineEvent(self, raw):
         event_dict, events = self.correctEvent(raw)
 
+        # events = events[20:,]
         # 把符合条件的event取出来
         Events = []
 
@@ -223,9 +224,12 @@ class datasetMaker():
     def readSTI(self,fileName):
 
         path = self.stiAdd + os.sep + fileName
-        STI = scio.loadmat(path)['optimal']
+        S = scio.loadmat(path)
+        STI = S['WN']
+        label = S['label']
+
         STI  = np.repeat(STI,4,axis=-1)
-        return STI
+        return STI,label[0]
 
 
     def ensemble(self):
@@ -248,17 +252,19 @@ class datasetMaker():
             with open(path, "rb") as fp:
                 sessions = pickle.load(fp)
 
+            STI, label = self.readSTI('STI.mat')
+            labels = np.tile(label,6)
             sub = dict()
             for session in sessions:
                 tag,X,y,chnNames = session
                 if tag == 'wn':
-                    STI = self.readSTI('optimal.mat')
+                    s, y = STI, labels[labels > 160]
                 else:
-                    STI = None
+                    s, y = STI, labels[labels <= 160]
                 exp = dict(
                     X = X,
                     y = y,
-                    STI = STI
+                    STI = s
                 )
                 sub[tag] = exp
             sub['channel'] = chnNames
@@ -278,9 +284,9 @@ class datasetMaker():
 if __name__ == '__main__':
 
     event_dict = dict(
-        wn=np.arange(1, 161),
-        rest = [200]
+        wn=[2],
+        ssvep=[1]
     )
-    config = Config(exp='sweep',srate=240,winLEN=1,event_dict=event_dict)
+    config = Config(exp='dense',srate=240,winLEN=0.6,event_dict=event_dict)
     curryMaker = datasetMaker(config)
     curryMaker.ensemble()
