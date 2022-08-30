@@ -16,15 +16,15 @@ from spatialFilters import TRCA, Matching,fbCCA
 import random
 
 # parameters
-srate = 240
-expName = 'dense'
+srate = 250
+expName = 'confirm'
 chnNames = ['PZ','PO5', 'POZ', 'PO3','PO4', 'PO6','PO7','PO8', 'O1', 'OZ','O2']
-seedNUM = 200
+seedNUM = 1
 targetNUM = 40
 poolNUM = 100
-saveFILE = 'classification-densse-random.csv'
-winLENs = [0.3]
-# winLENs = np.arange(0.2,0.7,step=.1)
+saveFILE = 'classification.csv'
+# winLENs = [0.3]
+winLENs = np.arange(0.2,1,step=.1)
 
 
 dir = './datasets/%s.pickle' % expName
@@ -42,11 +42,11 @@ for sub in tqdm(wholeset):
     if os.path.exists(add+os.sep+saveFILE):
         pass
     else:
-        for tag in ['wn', 'ssvep']:
+        for tag in ['wn', 'ssvep','high']:
 
             y = sub[tag]['y']
             X = sub[tag]['X'][-len(y):,chnINX]
-            S = np.array(sub[tag]['STI'])
+            # S = np.array(sub[tag]['STI'])
             
             for seed in tqdm(np.arange(seedNUM)):
 
@@ -55,7 +55,7 @@ for sub in tqdm(wholeset):
 
                 X_picked = np.concatenate([X[y == i] for i in picked])
                 y_picked = np.concatenate([y[y == i] for i in picked])
-                S_picked = np.concatenate([S[S == i] for i in picked])
+                # S_picked = np.concatenate([S[S == i] for i in picked])
 
 
                 stratSplit = StratifiedShuffleSplit(n_splits=6, test_size=1/6, random_state=42)

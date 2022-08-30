@@ -102,6 +102,8 @@ class cntReader():
 
         # notch and filter
         raw.notch_filter((50,100))
+        # raw.filter(40,100)
+
         
         for this_exp_events in  Events:
 
@@ -225,11 +227,14 @@ class datasetMaker():
 
         path = self.stiAdd + os.sep + fileName
         S = scio.loadmat(path)
-        STI = S['WN']
-        label = S['label']
-
-        STI  = np.repeat(STI,4,axis=-1)
-        return STI,label[0]
+        STI = dict()
+        for key in self.config.event_dict.keys():
+            if key in S.keys():               
+                seq = S[key]
+                factor = self.srate//(np.shape(seq)[-1]//self.winLEN)
+                STI[key] = np.repeat(seq, factor, axis=-1)
+        # label = S['label']
+        return STI
 
 
     def ensemble(self):
@@ -252,15 +257,19 @@ class datasetMaker():
             with open(path, "rb") as fp:
                 sessions = pickle.load(fp)
 
-            STI, label = self.readSTI('STI.mat')
-            labels = np.tile(label,6)
+            STI = self.readSTI('STI.mat')
+            # labels = np.tile(label,6)
             sub = dict()
             for session in sessions:
                 tag,X,y,chnNames = session
-                if tag == 'wn':
-                    s, y = STI, labels[labels > 160]
+                if tag in STI.keys():
+                    s = STI[tag]
                 else:
-                    s, y = STI, labels[labels <= 160]
+                    s = []
+                # if tag == 'wn':
+                #     s, y = STI, labels[labels > 160]
+                # else:
+                #     s, y = STI, labels[labels <= 160]
                 exp = dict(
                     X = X,
                     y = y,
@@ -283,10 +292,16 @@ class datasetMaker():
 
 if __name__ == '__main__':
 
+    # event_dict = dict(
+    #     wn=np.arange(1,41,step=1),
+    #     ssvep=np.arange(41, 81, step=1),
+    #     high=np.arange(81, 121, step=1)
+    # )
+
     event_dict = dict(
-        wn=[2],
-        ssvep=[1]
+        wn=np.arange(1,161,1)
     )
-    config = Config(exp='dense',srate=240,winLEN=0.6,event_dict=event_dict)
+    
+    config = Config(exp='sweep',srate=240,winLEN=1,event_dict=event_dict)
     curryMaker = datasetMaker(config)
     curryMaker.ensemble()

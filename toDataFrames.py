@@ -11,9 +11,9 @@ from utils import returnFFT, returnPSD, returnSpec
 from scipy import stats
 import random
 
-srate = 240
+srate = 480
 tmin, tmax = -0.1, .4
-expName = 'dense'
+expName = 'confirm'
 chnNames = ['PZ', 'POZ','O1', 'OZ','O2']
 
 random.seed(253)
@@ -22,7 +22,7 @@ dir = './datasets/%s.pickle' % expName
 with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
 
-tags = ['wn','ssvep']
+tags = ['high']
 for sub in tqdm(wholeset):
 
     for tag in tags:
@@ -31,9 +31,11 @@ for sub in tqdm(wholeset):
 
         y = sub[tag]['y']
         X = sub[tag]['X'][:, chnINX]
+        if tag=='high':
+            y = y-80
         S = np.stack([sub[tag]['STI'][i-1] for i in y])
 
-        # RF using merely xorr
+        # RF using merely xorrs
         decoder = NRC(srate=srate, tmin=tmin, tmax=tmax, alpha=0.95)
 
         decoder.fit(R=X, S=S[:,:X.shape[-1]])

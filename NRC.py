@@ -1,3 +1,4 @@
+from re import I
 import numpy as np
 import pandas as pd
 from mne.decoding import ReceptiveField
@@ -5,7 +6,7 @@ import os
 # from eelbrain import *
 import pickle
 from scipy import stats,signal
-
+from mne.decoding.receptive_field import _delay_time_series,_times_to_delays
 
 class NRC(ReceptiveField):
 
@@ -17,25 +18,23 @@ class NRC(ReceptiveField):
         self.estimator = None
         self.alpha = alpha
         self.fill_mean = fill_mean
-        # 'boosting' or 'NRC'
-        self.mode = 'boosting'
 
         pass
 
     def fit(self,R,S):
         
         epochNUM,chnNUM,_ = R.shape
-        laggedLEN = len(self._times_to_delays(self.tmin,self.tmax,self.srate))
+        laggedLEN = len(_times_to_delays(self.tmin,self.tmax,self.srate))
         Kernel = np.zeros((epochNUM,chnNUM,laggedLEN))
         Cov_sr = np.zeros((epochNUM,chnNUM,laggedLEN))
 
         for epochINX,(epoch,sti) in enumerate(zip(R,S)):
             sti = sti[:,np.newaxis]
-            laggedS = self._delay_time_series(sti, self.tmin, self.tmax,self.srate,fill_mean=self.fill_mean).squeeze()
+            laggedS = _delay_time_series(sti, self.tmin, self.tmax,self.srate,fill_mean=self.fill_mean).squeeze()
 
             # stimulation whitening
             Cov_ss = laggedS.T.dot(laggedS)
-            u,sigma,v = np.linalg.svd(Cov_ss.T.dot(Cov_ss))
+            u,sigma,v = np.linalg.svd(Cov_ss)
             for i in range(len(sigma)):
                 if sum(sigma[0:len(sigma)-i]/sum(sigma)) < self.alpha:
                     sigma = 1/sigma
@@ -52,110 +51,24 @@ class NRC(ReceptiveField):
         self.kernel = stats.zscore(Kernel,axis=-1)
         self.Csr = stats.zscore(Cov_sr,axis=-1)
 
-        return self
-
-    def fitBoosting(self,R,S,y):
-
-
-        epochNUM,chnNUM,n_times = R.shape
-        laggedLEN = len(self._times_to_delays(self.tmin,self.tmax,self.srate))
-        Kernel = []
-        tstep = 1/self.srate
-
-        time = UTS(0, tstep, n_times)
-        sensor = Sensor.from_montage('biosemi128')[:chnNUM]
-
-        # for epochINX,(epoch,sti) in enumerate(zip(R,S)):
-
-        #     epoch = NDVar(epoch, (sensor,time))
-        #     sti = NDVar(sti, (time))
-        #     trf = boosting(y=sti,x=epoch,tstart=-0.5,tstop=2,basis=0.1,partitions=2)
-        #     Kernel.append(np.array(trf.h_scaled))
-
-        for label in np.unique(y):
-
-            epoch = R[y==label]
-            sti = S[y==label]
-
-            epoch = NDVar(epoch, (Case,sensor,time))
-            sti = NDVar(sti, (Case,time))
-            trf = boosting(y=sti,x=epoch,tstart=self.tmin,tstop=self.tmax)
-            Kernel.append(np.array(trf.h_scaled))
-
-        self.kernel = np.stack(Kernel)
+        self.trf = self.kernel.mean(axis=0)
 
         return self
 
-    def _delay_time_series(self,X, tmin, tmax, sfreq, fill_mean=False):
-        """Return a time-lagged input time series.
+    def predict(self, S):
+        from scipy.stats import zscore
+        R = []
+        for s in S:
+            s = zscore(s)
+            s = s[:,np.newaxis]
+            ss = _delay_time_series(s,tmin=self.tmin,tmax=self.tmax,sfreq=self.srate,fill_mean=True).squeeze()
 
-        Parameters
-        ----------
-        X : array, shape (n_times[, n_epochs], n_features)
-            The time series to delay. Must be 2D or 3D.
-        tmin : int | float
-            The starting lag.
-        tmax : int | float
-            The ending lag.
-            Must be >= tmin.
-        sfreq : int | float
-            The sampling frequency of the series. Defaults to 1.0.
-        fill_mean : bool
-            If True, the fill value will be the mean along the time dimension
-            of the feature, and each cropped and delayed segment of data
-            will be shifted to have the same mean value (ensuring that mean
-            subtraction works properly). If False, the fill value will be zero.
+            r = ss.dot(self.trf.T)
+            norm_r = zscore(r.T,axis=-1)
+            R.append(norm_r)
 
-        Returns
-        -------
-        delayed : array, shape(n_times[, n_epochs][, n_features], n_delays)
-            The delayed data. It has the same shape as X, with an extra dimension
-            appended to the end.
+        return np.stack(R)
 
-        Examples
-        --------
-        >>> tmin, tmax = -0.1, 0.2
-        >>> sfreq = 10.
-        >>> x = np.arange(1, 6)
-        >>> x_del = _delay_time_series(x, tmin, tmax, sfreq)
-        >>> print(x_del)  # doctest:+SKIP
-        [[2. 1. 0. 0.]
-        [3. 2. 1. 0.]
-        [4. 3. 2. 1.]
-        [5. 4. 3. 2.]
-        [0. 5. 4. 3.]]
-        """
-        delays = self._times_to_delays(tmin, tmax, sfreq)
-        # Iterate through indices and append
-        delayed = np.zeros(X.shape + (len(delays),))
-        if fill_mean:
-            mean_value = X.mean(axis=0)
-            if X.ndim == 3:
-                mean_value = np.mean(mean_value, axis=0)
-            delayed[:] = mean_value[:, np.newaxis]
-        for ii, ix_delay in enumerate(delays):
-            # Create zeros to populate w/ delays
-            if ix_delay < 0:
-                out = delayed[:ix_delay, ..., ii]
-                use_X = X[-ix_delay:]
-            elif ix_delay > 0:
-                out = delayed[ix_delay:, ..., ii]
-                use_X = X[:-ix_delay]
-            else:  # == 0
-                out = delayed[..., ii]
-                use_X = X
-            out[:] = use_X
-            if fill_mean:
-                out[:] += (mean_value - use_X.mean(axis=0))
-        return delayed
-
-
-    def _times_to_delays(self,tmin, tmax, sfreq):
-        """Convert a tmin/tmax in seconds to delays."""
-        # Convert seconds to samples
-        delays = np.arange(int(np.round(tmin * sfreq)),
-                        int(np.round(tmax * sfreq) + 1))
-        return delays
 
 class RegularizedRF(NRC):
     def __init__(self, srate, tmin=-0.5, tmax=1, alpha=1e4,mTRF=False) -> None:
@@ -426,7 +339,7 @@ class recordModule():
 
     def _addTags(self,conditionINX):
 
-        conditionNUM = 160
+        conditionNUM = 40
         tagNames = np.repeat(['ssvep','wn'],conditionNUM)
         tags = [tagNames[i-1] for i in conditionINX.to_numpy()]
 
