@@ -500,6 +500,7 @@ class TDCA(TRCA):
         return self
     
     def transform(self, X, y=None):
+        from scipy.stats import zscore
         """
         Parameters
         ----------
@@ -515,7 +516,7 @@ class TDCA(TRCA):
         if y is None:
             y = np.arange(X.shape[0])
 
-        enhanced = np.zeros((self.montage, self.n_band, self.winLEN))
+        enhanced = np.zeros((len(np.unique(y)), self.n_band, self.winLEN))
 
         fbed_X = self.augmentation(X)
         for conditionINX,condition in enumerate(np.unique(y)):
@@ -524,7 +525,7 @@ class TDCA(TRCA):
                 enhance = fb.T.dot(filter)
                 enhanced[conditionINX,fbINX] = enhance.T
             
-        return enhanced
+        return zscore(enhanced,axis=-1)
 
 
     def predict(self, X):

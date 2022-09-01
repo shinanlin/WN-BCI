@@ -1,18 +1,12 @@
-from operator import imod
 import numpy as np
-import pandas as pd
 from mne.decoding import ReceptiveField,TimeDelayingRidge
-import os
-import matplotlib.pyplot as plt
 import pickle
-from scipy import stats, signal
-from mne.decoding import time_delaying_ridge
 from spatialFilters import TDCA
 from NRC import NRC
 
 class Code2EEG():
 
-    def __init__(self, S,srate=250, winLEN=1, tmin=0, tmax=0.5, estimator=0.98, scoring='corrcoef') -> None:
+    def __init__(self, S,srate=250, winLEN=1, tmin=0, tmax=0.5, estimator=0.98, scoring='corrcoef',padding=True) -> None:
 
         self.srate=srate
         self.tmin=tmin
@@ -20,6 +14,10 @@ class Code2EEG():
         self.winLEN = int(srate*winLEN)
         self.estimator=estimator
         self.scoring = scoring
+        self.padding = padding
+
+        self.padLEN = int(0.2*srate) if self.padding else 0
+            
         self._loadSTI(S)
 
         pass
@@ -36,6 +34,7 @@ class Code2EEG():
         self.STI = zscore(self.STI,axis=-1)
         
         self.STI = self.STI[:,:self.winLEN]
+
         return
 
 
@@ -51,7 +50,7 @@ class Code2EEG():
                         self.srate, montage=len(self._classes))
         enhanced = enhancer.fit_transform(X,y)
 
-        STI = np.concatenate([self.STI[self.montage==i] for i in y])
+        STI = np.concatenate([self.STI[self.montage==i] for i in self._classes])
 
         regressor = NRC(srate=self.srate,tmin=self.tmin,tmax=self.tmax,alpha=self.estimator)
         regressor.fit(R=enhanced,S=STI)
@@ -64,8 +63,14 @@ class Code2EEG():
         pass
 
     def predict(self,S):
+        
+        
+        pad = np.zeros((S.shape[0],self.padLEN))
+        S = np.concatenate((pad,S),axis=-1)
+        R_ = self.regressor.predict(S)
 
-        return self.regressor.predict(S)
+        # discard padding
+        return R_[:,:,self.padLEN:]
     
     def score(self, S, R):
         from mne.decoding.receptive_field import _SCORERS
@@ -80,6 +85,7 @@ class Code2EEG():
             
             score = scorer_(r.T, r_.T, multioutput='raw_values')
             scores.append(score)
+
         scores = np.stack(scores)
             
         return scores
@@ -168,7 +174,6 @@ if __name__=='__main__':
     S = sub['wn']['STI']
     testINX = np.arange(50)
     X, y, S = X[testINX], y[testINX], S[testINX]
-
     
     model = Code2EEG(srate=240,tmin=0,tmax=0.5,S=(S,np.unique(y)))
     model.fit(X,y)

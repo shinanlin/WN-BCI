@@ -56,6 +56,7 @@ class NRC(ReceptiveField):
         return self
 
     def predict(self, S):
+
         from scipy.stats import zscore
         R = []
         for s in S:
@@ -64,10 +65,10 @@ class NRC(ReceptiveField):
             ss = _delay_time_series(s,tmin=self.tmin,tmax=self.tmax,sfreq=self.srate,fill_mean=True).squeeze()
 
             r = ss.dot(self.trf.T)
-            norm_r = zscore(r.T,axis=-1)
-            R.append(norm_r)
+            # norm_r = zscore(r.T,axis=-1)
+            R.append(r.T)
 
-        return np.stack(R)
+        return zscore(np.stack(R),axis=-1)
 
 
 class RegularizedRF(NRC):
