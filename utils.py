@@ -11,6 +11,19 @@ import pandas as pd
 from tensorpac.utils import ITC
 
 
+def codeDistance(codeset):
+    
+    n_code = codeset.shape[0]
+
+    D = np.zeros((n_code,n_code))
+    for i,s1 in enumerate(codeset):
+        for j,s2 in enumerate(codeset):
+            D[i,j] = np.linalg.norm(s1-s2)
+    
+    row,col = np.diag_indices_from(D)
+    D[row,col] = np.nan
+    return D
+
 def ITR(N, P, winBIN):
 
     winBIN = winBIN+0.5

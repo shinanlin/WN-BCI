@@ -11,10 +11,10 @@ from utils import returnFFT, returnPSD, returnSpec
 from scipy import stats
 import random
 
-srate = 480
+srate = 240
 tmin, tmax = -0.1, .4
-expName = 'confirm'
-chnNames = ['PZ', 'POZ','O1', 'OZ','O2']
+expName = 'sweep'
+chnNames = ['PZ', 'POZ', 'OZ']
 
 random.seed(253)
 
@@ -22,7 +22,7 @@ dir = './datasets/%s.pickle' % expName
 with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
 
-tags = ['high']
+tags = ['wn']
 for sub in tqdm(wholeset):
 
     for tag in tags:
@@ -30,9 +30,12 @@ for sub in tqdm(wholeset):
         chnINX = [sub['channel'].index(i) for i in chnNames]
 
         y = sub[tag]['y']
-        X = sub[tag]['X'][:, chnINX]
-        if tag=='high':
-            y = y-80
+        X = sub[tag]['X']
+        # pickref = [sub['channel'].index(i) for i in sub['channel']]
+        # ref = np.mean([X[:, i] for i in pickref], axis=0)
+        # ref
+        # X = X[:, chnINX]-ref[:,np.newaxis,:]
+        X = X[:,chnINX]
         S = np.stack([sub[tag]['STI'][i-1] for i in y])
 
         # RF using merely xorrs
@@ -44,13 +47,13 @@ for sub in tqdm(wholeset):
         recoder.recordKernel(csr, y, 'locked', tmin, tmax)
 
         # shuffle
-        permute = np.arange(len(S))
-        random.shuffle(permute)
-        shuffledS = S[permute]
-        decoder.fit(R=X, S=shuffledS[:, :X.shape[-1]])
-        csr = decoder.Csr[:,:,np.newaxis,:]
-        recoder = recordModule(srate=srate,sub=sub['name'],chn=chnNames,exp=expName)
-        recoder.recordKernel(csr, y, 'shuffled', tmin, tmax)
+        # permute = np.arange(len(S))
+        # random.shuffle(permute)
+        # shuffledS = S[permute]
+        # decoder.fit(R=X, S=shuffledS[:, :X.shape[-1]])
+        # csr = decoder.Csr[:,:,np.newaxis,:]
+        # recoder = recordModule(srate=srate,sub=sub['name'],chn=chnNames,exp=expName)
+        # recoder.recordKernel(csr, y, 'shuffled', tmin, tmax)
 
     # recoder.recordEEG(X,y) 
 

@@ -57,7 +57,6 @@ for sub in tqdm(wholeset):
                 y_picked = np.concatenate([y[y == i] for i in picked])
                 # S_picked = np.concatenate([S[S == i] for i in picked])
 
-
                 stratSplit = StratifiedShuffleSplit(n_splits=6, test_size=1/6, random_state=42)
 
                 for cv, (train_index, test_index) in enumerate(stratSplit.split(X_picked, y_picked)):

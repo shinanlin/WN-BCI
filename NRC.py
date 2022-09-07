@@ -48,8 +48,8 @@ class NRC(ReceptiveField):
                 Cov_sr[epochINX, chnINX] = (laggedS.T).dot(chn)
                 Kernel[epochINX, chnINX] = (inv_C).dot(laggedS.T).dot(chn)
 
-        self.kernel = stats.zscore(Kernel,axis=-1)
-        self.Csr = stats.zscore(Cov_sr,axis=-1)
+        self.kernel = Kernel
+        self.Csr = Cov_sr
 
         self.trf = self.kernel.mean(axis=0)
 
@@ -61,6 +61,7 @@ class NRC(ReceptiveField):
         R = []
         for s in S:
             s = zscore(s)
+
             s = s[:,np.newaxis]
             ss = _delay_time_series(s,tmin=self.tmin,tmax=self.tmax,sfreq=self.srate,fill_mean=True).squeeze()
 
@@ -340,7 +341,7 @@ class recordModule():
 
     def _addTags(self,conditionINX):
 
-        conditionNUM = 40
+        conditionNUM = 160
         tagNames = np.repeat(['ssvep','wn'],conditionNUM)
         tags = [tagNames[i-1] for i in conditionINX.to_numpy()]
 

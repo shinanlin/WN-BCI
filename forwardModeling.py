@@ -6,7 +6,7 @@ from NRC import NRC
 
 class Code2EEG():
 
-    def __init__(self, S,srate=250, winLEN=1, tmin=0, tmax=0.5, estimator=0.98, scoring='corrcoef',padding=True) -> None:
+    def __init__(self, S,srate=250, winLEN=1, tmin=0, tmax=0.5, estimator=0.98, scoring='corrcoef',padding=True,n_band=5,component=3) -> None:
 
         self.srate=srate
         self.tmin=tmin
@@ -14,8 +14,9 @@ class Code2EEG():
         self.winLEN = int(srate*winLEN)
         self.estimator=estimator
         self.scoring = scoring
+        self.band = n_band
+        self.component = component
         self.padding = padding
-
         self.padLEN = int(0.2*srate) if self.padding else 0
             
         self._loadSTI(S)
@@ -32,7 +33,6 @@ class Code2EEG():
         self.montage=np.unique(y)
         self.STI = np.stack([STI[y==i].mean(axis=0) for i in self.montage])
         self.STI = zscore(self.STI,axis=-1)
-        
         self.STI = self.STI[:,:self.winLEN]
 
         return
@@ -47,9 +47,11 @@ class Code2EEG():
         N = np.shape(X)[-1]
         # TDCA 
         enhancer = TDCA(srate=self.srate, winLEN=N /
-                        self.srate, montage=len(self._classes))
-        enhanced = enhancer.fit_transform(X,y)
+                        self.srate, montage=len(self._classes),n_band=self.band,n_components=self.component)
 
+        # input: enhanced response and the respective STI
+        enhanced = enhancer.fit_transform(X,y)
+        # reshaped enhance to (fb * components)
         STI = np.concatenate([self.STI[self.montage==i] for i in self._classes])
 
         regressor = NRC(srate=self.srate,tmin=self.tmin,tmax=self.tmax,alpha=self.estimator)
@@ -60,11 +62,11 @@ class Code2EEG():
         self.enhanced = enhanced
         self.trf = regressor.trf
         
-        pass
+        return self
 
     def predict(self,S):
         
-        
+        # padding for VEP onset
         pad = np.zeros((S.shape[0],self.padLEN))
         S = np.concatenate((pad,S),axis=-1)
         R_ = self.regressor.predict(S)
@@ -73,6 +75,7 @@ class Code2EEG():
         return R_[:,:,self.padLEN:]
     
     def score(self, S, R):
+
         from mne.decoding.receptive_field import _SCORERS
         # Create our scoring object
         scorer_ = _SCORERS[self.scoring]

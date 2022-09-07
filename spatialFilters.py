@@ -46,6 +46,7 @@ class TRCA():
         self : instance of TRCA
             Returns the modified instance.
         """
+        
 
         X = X[:, :, self.lag:self.lag+self.winLEN]
 
@@ -289,7 +290,7 @@ class TRCA():
 
         passband = [6, 14, 22, 30, 38, 46, 54, 62, 70, 78]
         stopband = [4, 10, 16, 24, 32, 40, 48, 56, 64, 72]
-
+        
         srate = srate/2
 
         Wp = [passband[freqInx]/srate, 90/srate]
@@ -516,7 +517,8 @@ class TDCA(TRCA):
         if y is None:
             y = np.arange(X.shape[0])
 
-        enhanced = np.zeros((len(np.unique(y)), self.n_band, self.winLEN))
+        n_class = len(np.unique(y))
+        enhanced = np.zeros((n_class, self.n_band, self.n_components,self.winLEN))
 
         fbed_X = self.augmentation(X)
         for conditionINX,condition in enumerate(np.unique(y)):
@@ -524,7 +526,9 @@ class TDCA(TRCA):
             for fbINX,(fb,filter) in enumerate(zip(classEvoked,self.filters)):
                 enhance = fb.T.dot(filter)
                 enhanced[conditionINX,fbINX] = enhance.T
-            
+        # reshape
+        enhanced = np.reshape(enhanced,(n_class,self.n_band*self.n_components,-1))
+
         return zscore(enhanced,axis=-1)
 
 
@@ -583,7 +587,7 @@ class TDCA(TRCA):
             # norm
             # fbEvoked:40*9*478; fbEpochs:40*9*478
             fbEvoked = fbEvoked-np.mean(fbEvoked, axis=-1, keepdims=True)
-            fbEvokedFeature = -np.mean(fbEvoked, axis=0, keepdims=True)
+            fbEvokedFeature = np.mean(fbEvoked, axis=0, keepdims=True)
             betwClass = fbEvoked-fbEvokedFeature
             betwClass = np.concatenate(betwClass, axis=1)
             # norm
@@ -620,11 +624,14 @@ class TDCA(TRCA):
 
     def augmentation(self, X):
 
+        from scipy.stats import zscore
+        X = zscore(X,axis=-1)
+
         augmentX = []
         for epoch in X:
             fbedEpoch = []
             for fbINX in range(self.n_band):
-                fbEpoch = self.filterbank(epoch, self.srate, fbINX)
+                fbEpoch = self.filterbank(epoch, fbINX)
                 fbedEpoch.append(fbEpoch)
             fbedEpoch = np.concatenate(fbedEpoch, axis=-1)
             augmentX.append(fbedEpoch)
@@ -634,6 +641,32 @@ class TDCA(TRCA):
 
         return augmentX
 
+    def filterbank(self, x, fbINX):
+
+        start = [(4, 6), (10, 12), (16, 18),]
+        stop = [(20, 25), (22, 24), (32, 34),]
+
+        n_rate = self.srate/2
+
+        Wp = [start[fbINX][1]/n_rate, stop[fbINX][0]/n_rate]
+        Ws = [start[fbINX][0]/n_rate, stop[fbINX][1]/n_rate]
+
+        [N, Wn] = signal.cheb1ord(Wp, Ws, 3, 40)
+        [B, A] = signal.cheby1(N, 0.5, Wn, 'bandpass')
+
+        filtered_signal = np.zeros(np.shape(x))
+        if len(np.shape(x)) == 2:
+            for channelINX in range(np.shape(x)[0]):
+                filtered_signal[channelINX, :] = signal.filtfilt(
+                    B, A, x[channelINX, :])
+            filtered_signal = np.expand_dims(filtered_signal, axis=-1)
+        else:
+            for epochINX, epoch in enumerate(x):
+                for channelINX in range(np.shape(epoch)[0]):
+                    filtered_signal[epochINX, channelINX, :] = signal.filtfilt(
+                        B, A, epoch[channelINX, :])
+
+        return filtered_signal
 
 class Matching(fbCCA):
 
