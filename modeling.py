@@ -2,11 +2,11 @@ import numpy as np
 from spatialFilters import TDCA
 from NRC import NRC
 from sklearn.model_selection import train_test_split
-
+import pickle
 
 class Code2EEG():
 
-    def __init__(self, S, srate=250, winLEN=1, tmin=0, tmax=0.5, estimator=0.98, scoring='corrcoef', padding=True, n_band=5, component=3) -> None:
+    def __init__(self, S, srate=250, winLEN=1, tmin=0, tmax=0.5, estimator=0.98, scoring='corrcoef', padding=True, n_band=5, component=1) -> None:
 
         self.srate = srate
         self.tmin = tmin
@@ -52,7 +52,8 @@ class Code2EEG():
         # reshaped enhance to (fb * components)
         STI = np.concatenate([self.STI[self.montage == i]
                               for i in self._classes])
-
+        STI = np.tile(STI,self.component)
+        
         regressor = NRC(srate=self.srate, tmin=self.tmin,
                         tmax=self.tmax, alpha=self.estimator)
         regressor.fit(R=enhanced, S=STI)
@@ -67,6 +68,7 @@ class Code2EEG():
     def predict(self, S):
 
         # padding for VEP onset
+        S = np.tile(S,self.component)
         pad = np.zeros((S.shape[0], self.padLEN))
         S = np.concatenate((pad, S), axis=-1)
         R_ = self.regressor.predict(S)
@@ -159,7 +161,7 @@ if __name__ == '__main__':
     with open(dir, "rb") as fp:
         wholeset = pickle.load(fp)
 
-    sub = wholeset[2]
+    sub = wholeset[1]
 
     chnNames = ['PZ', 'PO5', 'POZ', 'PO4', 'PO6', 'O1', 'OZ']
     chnINX = [sub['channel'].index(i) for i in chnNames]
@@ -182,8 +184,8 @@ if __name__ == '__main__':
     S_train, S_test = np.stack(
         [S[i-1] for i in y_train]), np.stack([S[i-1] for i in y_test])
 
-    model = EEG2Code(srate=240, tmin=0, tmax=0.9, S=(
-        S, np.unique(y)), component=1, estimator=0.8)
+    model = Code2EEG(srate=240, tmin=0, tmax=0.9, S=(
+        S, np.unique(y)), component=2, estimator=0.8)
     model.fit(X_train, y_train)
     s = model.score(X_test, y_test)
     print(s)

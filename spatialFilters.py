@@ -64,7 +64,7 @@ class TRCA():
 
                 this_class_data = X[y == classINX]
                 this_band_data = self.filterbank(
-                    this_class_data, self.srate, freqInx=fbINX)
+                    this_class_data, freqInx=fbINX)
                     
                 evoked = np.mean(this_band_data, axis=0)
                 evokeds.append(evoked)
@@ -167,7 +167,7 @@ class TRCA():
 
             for fbINX in range(self.n_band):
 
-                epoch_band = np.squeeze(self.filterbank(epoch, self.srate, fbINX))
+                epoch_band = np.squeeze(self.filterbank(epoch, fbINX))
 
                 for (classINX, evoked) in zip(np.arange(self.montage), self.evokeds):
 
@@ -286,15 +286,15 @@ class TRCA():
 
         return frames
 
-    def filterbank(self, x, srate, freqInx):
+    def filterbank(self, x, freqInx):
 
         passband = [6, 14, 22, 30, 38, 46, 54, 62, 70, 78]
         stopband = [4, 10, 16, 24, 32, 40, 48, 56, 64, 72]
         
-        srate = srate/2
+        srate = self.srate/2
 
-        Wp = [passband[freqInx]/srate, 90/srate]
-        Ws = [stopband[freqInx]/srate, 100/srate]
+        Wp = [passband[freqInx]/srate, 30/srate]
+        Ws = [stopband[freqInx]/srate, 35/srate]
         [N, Wn] = signal.cheb1ord(Wp, Ws, 3, 40)
         [B, A] = signal.cheby1(N, 0.5, Wn, 'bandpass')
 
@@ -527,7 +527,7 @@ class TDCA(TRCA):
                 enhance = fb.T.dot(filter)
                 enhanced[conditionINX,fbINX] = enhance.T
         # reshape
-        enhanced = np.reshape(enhanced,(n_class,self.n_band*self.n_components,-1))
+        enhanced = np.reshape(enhanced,(n_class,self.n_band,-1))
 
         return zscore(enhanced,axis=-1)
 
@@ -641,32 +641,32 @@ class TDCA(TRCA):
 
         return augmentX
 
-    def filterbank(self, x, fbINX):
+    # def filterbank(self, x, fbINX):
 
-        start = [(4, 6), (10, 12), (16, 18),]
-        stop = [(20, 25), (22, 24), (32, 34),]
+    #     start = [(4, 6), (10, 12), (16, 18),]
+    #     stop = [(20, 25), (22, 24), (32, 34),]
 
-        n_rate = self.srate/2
+    #     n_rate = self.srate/2
 
-        Wp = [start[fbINX][1]/n_rate, stop[fbINX][0]/n_rate]
-        Ws = [start[fbINX][0]/n_rate, stop[fbINX][1]/n_rate]
+    #     Wp = [start[fbINX][1]/n_rate, stop[fbINX][0]/n_rate]
+    #     Ws = [start[fbINX][0]/n_rate, stop[fbINX][1]/n_rate]
 
-        [N, Wn] = signal.cheb1ord(Wp, Ws, 3, 40)
-        [B, A] = signal.cheby1(N, 0.5, Wn, 'bandpass')
+    #     [N, Wn] = signal.cheb1ord(Wp, Ws, 3, 40)
+    #     [B, A] = signal.cheby1(N, 0.5, Wn, 'bandpass')
 
-        filtered_signal = np.zeros(np.shape(x))
-        if len(np.shape(x)) == 2:
-            for channelINX in range(np.shape(x)[0]):
-                filtered_signal[channelINX, :] = signal.filtfilt(
-                    B, A, x[channelINX, :])
-            filtered_signal = np.expand_dims(filtered_signal, axis=-1)
-        else:
-            for epochINX, epoch in enumerate(x):
-                for channelINX in range(np.shape(epoch)[0]):
-                    filtered_signal[epochINX, channelINX, :] = signal.filtfilt(
-                        B, A, epoch[channelINX, :])
+    #     filtered_signal = np.zeros(np.shape(x))
+    #     if len(np.shape(x)) == 2:
+    #         for channelINX in range(np.shape(x)[0]):
+    #             filtered_signal[channelINX, :] = signal.filtfilt(
+    #                 B, A, x[channelINX, :])
+    #         filtered_signal = np.expand_dims(filtered_signal, axis=-1)
+    #     else:
+    #         for epochINX, epoch in enumerate(x):
+    #             for channelINX in range(np.shape(epoch)[0]):
+    #                 filtered_signal[epochINX, channelINX, :] = signal.filtfilt(
+    #                     B, A, epoch[channelINX, :])
 
-        return filtered_signal
+    #     return filtered_signal
 
 class Matching(fbCCA):
 
