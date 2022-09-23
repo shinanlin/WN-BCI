@@ -26,8 +26,6 @@ targetNUM = 40
 seedNUM = 100
 saveFILE = 'optimize-coef.csv'
 
-
-
 # %%
 
 expName = 'sweep'
@@ -105,8 +103,6 @@ for seed in tqdm(np.arange(seedNUM)):
     })
     f['accuracy'] = score
     f['seed'] = seed
-
-
 
 
     # for (dists,dist_name) in zip([code_dist,f_response_dist,r_response_dist],['code','reconstruct','response']):
