@@ -23,7 +23,7 @@ from statsmodels.stats.weightstats import ttest_ind
 
 class TRCA():
 
-    def __init__(self, n_components=1, n_band=1, montage=40, winLEN=2, lag=35,srate=250):
+    def __init__(self, n_components=1, n_band=1, montage=40, winLEN=2, lag=0.14,srate=250):
 
         self.n_components = n_components
         self.n_band = n_band
@@ -32,7 +32,9 @@ class TRCA():
         self.phase = np.tile(np.arange(0, 2, 0.5)*math.pi, 10)
         self.srate = srate
         self.winLEN = round(self.srate*winLEN)
-        self.lag = lag
+        self.lag = round(self.srate*lag)
+        self.fb_coef = np.arange(1, n_band+1)[np.newaxis,:]**-1.25+0.25
+
 
     def fit(self, X, y):
         """
@@ -52,7 +54,7 @@ class TRCA():
 
         self._classes = np.unique(y)
 
-        self.filter = []
+        self.filters = []
         self.evokeds = []
         for fbINX in range(self.n_band):
             # 每种信号都有不同的模版
@@ -64,17 +66,17 @@ class TRCA():
 
                 this_class_data = X[y == classINX]
                 this_band_data = self.filterbank(
-                    this_class_data, freqInx=fbINX)
+                    this_class_data, fbINX=fbINX)
                     
                 evoked = np.mean(this_band_data, axis=0)
                 evokeds.append(evoked)
                 weight = self.computer_trca_weight(this_band_data)
                 filter.append(weight[:, :self.n_components])
 
-            self.filter.append(np.concatenate(filter, axis=-1))
+            self.filters.append(np.concatenate(filter, axis=-1))
             self.evokeds.append(np.stack(evokeds))
 
-        self.filter = np.stack(self.filter)
+        self.filters = np.stack(self.filters)
         self.evokeds = np.stack(self.evokeds).transpose((1, 0, 2, 3))
 
         return self
@@ -96,7 +98,7 @@ class TRCA():
         enhanced = np.zeros((self.n_band, self.montage, self.winLEN))
 
         for classINX, classEvoked in enumerate(self.evokeds):
-            for fbINX, (filter, fb) in enumerate(zip(self.filter, classEvoked)):
+            for fbINX, (filter, fb) in enumerate(zip(self.filters, classEvoked)):
                 enhance = np.dot(fb.T, filter[:, classINX])
                 enhanced[fbINX, classINX] = enhance
         
@@ -109,39 +111,6 @@ class TRCA():
 
         return self.fit(X, y).transform(X, y)
 
-    def IRF(self, X, y):
-
-        X = X[:, :, :self.winLEN]
-        N = X.shape[-1]
-        # extract template
-        labels = np.unique(y)
-        conNUM = len(labels)
-        ave = np.zeros((conNUM, N))
-        for i, l in enumerate(labels):
-            ave[i] = X[y == l].mean(axis=(0, 1))
-
-        # 生成和数据等长的正弦刺激
-        sti = self.sine(N)[labels]
-
-        score = np.zeros((conNUM, N))
-        for i, (t1, t2) in enumerate(zip(sti, ave)):
-            s = np.correlate(t2-t2.mean(), t1-t1.mean(), mode='full')
-            s = s / (N * t2.std() * t1.std())
-            score[i] = s[N-1:]
-
-        ave_score = score.mean(axis=0)
-        self.lag = np.argmax(ave_score)
-
-        return score, self.lag
-
-    def sine(self, winLEN):
-        sine = []
-        win = winLEN
-        t = np.arange(0, (win/self.srate), 1/self.srate)
-        for f, p in zip(self.frequncy, self.phase):
-            sine.append([np.sin(2*np.pi*i*f+p) for i in t])
-        self.sti = np.stack(sine)
-        return self.sti
 
     def predict(self, X):
 
@@ -153,11 +122,8 @@ class TRCA():
         X = X[:, :, self.lag:self.lag+self.winLEN]
 
         result = []
-
         
         H = np.zeros(X.shape[0])
-        fb_coefs = np.expand_dims(
-            np.arange(1, self.n_band+1)**-1.25+0.25, axis=0)
 
         self.rho = np.zeros((X.shape[0], self.montage))
 
@@ -172,41 +138,27 @@ class TRCA():
                 for (classINX, evoked) in zip(np.arange(self.montage), self.evokeds):
 
                     template = np.squeeze(evoked[fbINX, :, :])
-                    w = np.squeeze(self.filter[fbINX, :])
+                    w = np.squeeze(self.filters[fbINX, :])
                     rtemp = np.corrcoef(
                         np.dot(epoch_band.T, w).reshape(-1), np.dot(template.T, w).reshape(-1))
                     r[fbINX, classINX] = rtemp[0, 1]
 
-            rho = np.dot(fb_coefs, r)
+            rho = np.dot(self.fb_coef, r)
 
             self.rho[epochINX] = rho
             # hypothesis testing
             target = np.nanargmax(rho)
             rhoNoise = np.delete(rho, target)
             rhoNoise = np.delete(rhoNoise, np.isnan(rhoNoise))
-            _, H[epochINX], _ = ttest_ind(rhoNoise, [rho[0, target]])
-
+            _, H[epochINX], _ = ttest_ind(rhoNoise, [rho[0, target]],alternative='smaller')
+            
             result.append(self._classes[target])
 
         self.confidence = H
-
+        self.predicted = np.stack(result)
         return np.stack(result)
 
-    def residual(self, x, result):
 
-        evoked = self.evokeds[int(result)]
-
-        for fbINX in range(self.n_band):
-
-            epoch_band = np.squeeze(self.filterbank(x, self.srate, fbINX))
-            template = np.squeeze(evoked[fbINX, :, :])
-            w = np.squeeze(self.filter[fbINX, :])
-            t = np.dot(template.T, w).reshape(-1)
-            s = np.dot(epoch_band.T, w).reshape(-1)
-            residual = t-s
-            stats.ttest_1samp(residual, 0.0)
-
-        pass
 
     def score(self, X, y):
 
@@ -230,10 +182,6 @@ class TRCA():
             print('mean confidence:', self.confidence.mean())
             print('pesudo_acc {pesudo_acc} %'.format(pesudo_acc=pesudo_acc))
 
-            # if pesudo_acc >= 0.85:
-            #     boostWin = ds
-            #     break
-
             if self.confidence.mean() < p_val:
                 boostWin = ds
                 break
@@ -247,70 +195,27 @@ class TRCA():
 
         return (boostWin/srate), difficult
 
-    def recordCoff(self, X, y, subINX, adINX, frames):
-        # 判断要设置什么窗
-        epochNUM = len(y)
-        srate = self.srate
-        former_win = 500
-        dyStopping = np.arange(0.4, (former_win/srate)+0.1, step=0.2)
-
-        for ds in dyStopping:
-            ds = int(ds*srate)
-            labels = self.predict(X[:, :, :ds])
-
-            coff = self.confidence.squeeze()
-            personCoff = self.confidencePer.squeeze()
-            refCoff = self.confidenceRef.squeeze()
-
-            coff = np.concatenate([coff, personCoff, refCoff])
-            tags = np.repeat(['combined', 'personal', 'ref'], epochNUM)
-            trueLabel = np.tile(y, 3)
-            predictedLabel = np.tile(labels, 3)
-            correctness = np.tile(y == labels, 3)
-
-            frame = pd.DataFrame({
-                'coff': coff,
-                'tags': tags,
-                'trueLabel': trueLabel,
-                'predictedLabel': predictedLabel,
-                'correctness': correctness
-            })
-            frame['personID'] = 'S %s' % subINX
-            frame['adINX'] = adINX
-            frame['winLEN'] = ds
-
-            frames.append(frame)
-
-        # df = pd.concat(frames, axis=0)
-        # df.to_csv('dynamics/S{inx}.csv'.format(inx=subINX))
-
-        return frames
-
-    def filterbank(self, x, freqInx):
+    def filterbank(self, x, fbINX):
 
         passband = [6, 14, 22, 30, 38, 46, 54, 62, 70, 78]
         stopband = [4, 10, 16, 24, 32, 40, 48, 56, 64, 72]
         
-        srate = self.srate/2
+        nrate = self.srate/2
 
-        Wp = [passband[freqInx]/srate, 30/srate]
-        Ws = [stopband[freqInx]/srate, 35/srate]
+        Wp = [passband[fbINX]/nrate, 90/nrate]
+        Ws = [stopband[fbINX]/nrate, 100/nrate]
+
+        # design filter parameters
         [N, Wn] = signal.cheb1ord(Wp, Ws, 3, 40)
         [B, A] = signal.cheby1(N, 0.5, Wn, 'bandpass')
-
-        filtered_signal = np.zeros(np.shape(x))
+        
         if len(np.shape(x)) == 2:
-            for channelINX in range(np.shape(x)[0]):
-                filtered_signal[channelINX, :] = signal.filtfilt(
-                    B, A, x[channelINX, :])
-            filtered_signal = np.expand_dims(filtered_signal, axis=-1)
-        else:
-            for epochINX, epoch in enumerate(x):
-                for channelINX in range(np.shape(epoch)[0]):
-                    filtered_signal[epochINX, channelINX, :] = signal.filtfilt(
-                        B, A, epoch[channelINX, :])
+            x = x[np.newaxis,:,:]
 
-        return filtered_signal
+        # filtering
+        filtered = signal.filtfilt(B, A, x,axis=-1)
+
+        return filtered
 
     def computer_trca_weight(self, eeg):
         """
@@ -344,7 +249,7 @@ class TRCA():
 
 
 class fbCCA():
-    def __init__(self, n_components=1, n_band=5, srate=240, conditionNUM=20, lag=35, winLEN=2):
+    def __init__(self, n_components=1, n_band=5, srate=250, conditionNUM=20, lag=35, winLEN=2):
         self.n_components = n_components
         self.n_band = n_band
         self.srate = srate
@@ -458,9 +363,10 @@ class fbCCA():
 
 class TDCA(TRCA):
 
-    def __init__(self, n_components=1, n_band=5, montage=40, winLEN=2, lag=35, srate=250):
+    def __init__(self, n_components=1, n_band=1, montage=40, winLEN=2, lag=0.14, srate=250):
         super().__init__(n_components, n_band, montage, winLEN, lag, srate)
-        
+        self.fb_coef = np.arange(1, n_band+1)[np.newaxis, :]**-1.25+0.25
+
     def fit(self, X, y):
         # X: 160*9*750
         self._classes = np.unique(y)
@@ -471,6 +377,9 @@ class TDCA(TRCA):
         # 先子带滤波，否则会引入很大计算量
         X = self.augmentation(X)
 
+        # 滤波之后再截取latency
+        X = X[...,self.lag:self.lag+self.winLEN]
+
         X = np.transpose(X, axes=(1, 0, -2, -1))
 
         augumentX = []
@@ -480,6 +389,7 @@ class TDCA(TRCA):
             augumentClass = []
 
             for classINX in self._classes:
+
                 this_class_data = fbX[y == classINX]
 
                 augumentEpoch = []
@@ -498,6 +408,7 @@ class TDCA(TRCA):
 
         self.computer_tdca_weight(augumentX)
 
+        self.pattern = self.pinv(np.concatenate(self.filters).T)
         return self
     
     def transform(self, X, y=None):
@@ -513,6 +424,7 @@ class TDCA(TRCA):
         X : ndarray
             shape is (n_epochs, n_sources, n_times).
         """
+        X = X[:,:,self.lag:self.lag+self.winLEN]
 
         if y is None:
             y = np.arange(X.shape[0])
@@ -540,16 +452,18 @@ class TDCA(TRCA):
         result = []
         
         H = np.zeros(X.shape[0])
-        fb_coefs = np.expand_dims(
-            np.arange(1, self.n_band+1)**-1.25+0.25, axis=0)
 
         X = self.augmentation(X)
 
+        X = X[..., self.lag:self.lag+self.winLEN]
+
+        self.rho = np.zeros((X.shape[0], self.montage))
+
         for epochINX, epoch in enumerate(X):
 
-            r = np.zeros((self.n_band, len(self.montage)))
+            r = np.zeros((self.n_band, self.montage))
 
-            for (classINX, evoked) in zip(self._classes, self.evokeds):
+            for (classINX, evoked) in zip(np.arange(self.montage), self.evokeds):
 
                 for fbINX, (fbEvoked, fbEpoch, filter) in enumerate(zip(evoked, epoch, self.filters)):
 
@@ -559,19 +473,16 @@ class TDCA(TRCA):
                     ))
                     r[fbINX, classINX] = rtemp[0, 1]
 
-            rho = np.dot(fb_coefs, r)
-            missing = np.setdiff1d(
-                self.montage, self._classes)  # missing filter
-            rho[:, missing] = None
+            rho = np.dot(self.fb_coef, r)
+            self.rho[epochINX] = rho
 
             target = np.nanargmax(rho)
             rhoNoise = np.delete(rho, target)
             rhoNoise = np.delete(rhoNoise, np.isnan(rhoNoise))
             _, H[epochINX], _ = ttest_ind(rhoNoise, [rho[0, target]])
-            result.append(target)
+            result.append(self._classes[target])
 
         self.confidence = H
-
         return np.stack(result)
 
 
@@ -606,11 +517,14 @@ class TDCA(TRCA):
 
             Hb = betwClass/math.sqrt(self.montage)
             Hw = allClassEvoked/math.sqrt(self.epochNUM)
+            self.Hb = Hb
+            self.Hw = Hw
             Sb = np.dot(Hb, Hb.T)
-            Sw = np.dot(Hw, Hw.T)+0.001*np.eye(Hw.shape[0])
+            # Sw = np.dot(Hw, Hw.T)+0.001*np.eye(Hw.shape[0])
+            Sw = np.dot(Hw, Hw.T)
 
             # inv(Sw)*B
-            C = np.linalg.inv(Sw).dot(Sb)
+            C = np.linalg.inv((Sw)).dot(Sb)
             _, W = np.linalg.eig(C)
             _, W = la.eig(C)
 
@@ -624,8 +538,7 @@ class TDCA(TRCA):
 
     def augmentation(self, X):
 
-        from scipy.stats import zscore
-        X = zscore(X,axis=-1)
+        # from scipy.stats import zscore
 
         augmentX = []
         for epoch in X:
@@ -639,35 +552,46 @@ class TDCA(TRCA):
         augmentX = np.stack(augmentX)
         augmentX = np.transpose(augmentX, axes=(0, -1, 1, 2))
 
+        # augmentX = zscore(augmentX,axis=-1)
+
         return augmentX
 
-    # def filterbank(self, x, fbINX):
+    def filterbank(self, x, fbINX):
 
-    #     start = [(4, 6), (10, 12), (16, 18),]
-    #     stop = [(20, 25), (22, 24), (32, 34),]
+        fbPara = [[(6, 90), (4, 100)],  # passband, stopband freqs [(Wp), (Ws)]
+        [(14, 90), (10, 100)],
+        [(22, 90), (16, 100)],
+        [(30, 90), (24, 100)],
+        [(38, 90), (32, 100)],]
 
-    #     n_rate = self.srate/2
+        nrate = self.srate/2
 
-    #     Wp = [start[fbINX][1]/n_rate, stop[fbINX][0]/n_rate]
-    #     Ws = [start[fbINX][0]/n_rate, stop[fbINX][1]/n_rate]
+        pBand,sBand = fbPara[fbINX]
+        Wp = [pBand[0]/nrate, pBand[1]/nrate]
+        Ws = [sBand[0]/nrate, sBand[1]/nrate]
 
-    #     [N, Wn] = signal.cheb1ord(Wp, Ws, 3, 40)
-    #     [B, A] = signal.cheby1(N, 0.5, Wn, 'bandpass')
+        # design filter parameters
+        [N, Wn] = signal.cheb1ord(Wp, Ws, 3, 40)
+        [B, A] = signal.cheby1(N, 0.5, Wn, 'bandpass')
+        
+        if len(np.shape(x)) == 2:
+            x = x[np.newaxis,:,:]
+        # filtering
+        filtered = signal.filtfilt(B, A, x,axis=-1)
 
-    #     filtered_signal = np.zeros(np.shape(x))
-    #     if len(np.shape(x)) == 2:
-    #         for channelINX in range(np.shape(x)[0]):
-    #             filtered_signal[channelINX, :] = signal.filtfilt(
-    #                 B, A, x[channelINX, :])
-    #         filtered_signal = np.expand_dims(filtered_signal, axis=-1)
-    #     else:
-    #         for epochINX, epoch in enumerate(x):
-    #             for channelINX in range(np.shape(epoch)[0]):
-    #                 filtered_signal[epochINX, channelINX, :] = signal.filtfilt(
-    #                     B, A, epoch[channelINX, :])
+        return np.transpose(filtered,(1,2,0))
 
-    #     return filtered_signal
-
+    def pinv(self,a, rtol=None):
+        """Compute a pseudo-inverse of a matrix."""
+        u, s, vh = np.linalg.svd(a, full_matrices=False)
+        del a
+        maxS = np.max(s)
+        if rtol is None:
+            rtol = max(vh.shape + u.shape) * np.finfo(u.dtype).eps
+        rank = np.sum(s > maxS * rtol)
+        u = u[:, :rank]
+        u /= s[:rank]
+        return (u @ vh[:rank]).conj().T
 class Matching(fbCCA):
 
     def __init__(self, n_components=1, n_band=5, srate=250, conditionNUM=40, lag=35, winLEN=2,tmin=0,tmax=0.5):
@@ -727,6 +651,35 @@ class Matching(fbCCA):
         return Bands
 
 
+class gridSearch(TDCA):
+
+    def __init__(self, fbPara,a,b,n_components=1, n_band=5, montage=40, winLEN=2, lag=35, srate=250):
+
+        super().__init__(n_components, n_band, montage, winLEN, lag, srate)
+
+        self.fbPara = fbPara
+        self.fb_coef =  np.arange(1, self.n_band+1)[np.newaxis,:]**-a+b
+
+        
+    def filterbank(self, x, fbINX):
+
+        nrate = self.srate/2
+
+        pBand,sBand = self.fbPara[fbINX]
+        Wp = [pBand[0]/nrate, pBand[1]/nrate]
+        Ws = [sBand[0]/nrate, sBand[1]/nrate]
+
+        # design filter parameters
+        [N, Wn] = signal.cheb1ord(Wp, Ws, 3, 40)
+        [B, A] = signal.cheby1(N, 0.5, Wn, 'bandpass')
+        
+        if len(np.shape(x)) == 2:
+            x = x[np.newaxis,:,:]
+        # filtering
+        filtered = signal.filtfilt(B, A, x,axis=-1)
+
+        return np.transpose(filtered,(1,2,0))
+
 
 if __name__ == '__main__':
 
@@ -735,6 +688,14 @@ if __name__ == '__main__':
     y = np.arange(1,41,1)
     S = np.random.random((40, 240))
 
+    filterbanks = [[(6, 90), (4, 100)],  # passband, stopband freqs [(Wp), (Ws)]
+              [(14, 90), (10, 100)],
+              [(22, 90), (16, 100)],
+              [(30, 90), (24, 100)],
+              [(38, 90), (32, 100)],]
+
     model = TDCA(winLEN=1,srate=240)
     # model.fit(X,y)
-    model.fit_transform(X,y)
+    model.fit(X,y)
+
+

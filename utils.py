@@ -19,17 +19,12 @@ def codeDistance(codeset):
     for i,s1 in enumerate(codeset):
         for j,s2 in enumerate(codeset):
 
-            # D[i,j] = np.corrcoef(s1,s2)[0,1]
-            D[i,j] = np.linalg.norm(s1-s2)
+            D[i,j] = np.sum(np.square(s1-s2))
     
     row,col = np.diag_indices_from(D)
     D[row,col] = np.nan
 
-    coefs = np.triu(D,k=0)
-    coefs[np.tril_indices(coefs.shape[0], -1)] = np.nan
-    dis = np.sort(coefs)[0][:3].sum()
-
-    return D,dis
+    return D
 
 def ITR(N, P, winBIN):
 
