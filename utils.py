@@ -63,7 +63,6 @@ def returnPSD(s,srate=250):
     freqz, fftAmp = signal.welch(
     x=s, axis=-1, fs=srate, nperseg=s.shape[-1]//2, nfft=s.shape[-1], scaling='spectrum', window='boxcar',)
 
-
     lowFre = np.argwhere((1<freqz)&(freqz<80)).squeeze()
     freqz = freqz[lowFre]
     fftAmp = fftAmp.T

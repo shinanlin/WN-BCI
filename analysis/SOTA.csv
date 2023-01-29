@@ -1,0 +1,8 @@
+﻿Name,Year,Method,calibration,Field,Type,ITR,Tags,Authors,Ref
+JFPM SSVEP,2018,noninvasive,"0.5 ",sensory tagging,visual,5.4,visual gaze direction,Nakanishi et al,https://ieeexplore.ieee.org/abstract/document/7904641/
+brain-to-text,2021,invasive,1-1.5,intention,motor,4.8,handwriting movements attempts,Krishna V. Shenoy et al,https://www.nature.com/articles/s41586-021-03506-2
+"limb movements ",2020,invasive,3-5,intention,motor,4.52,limb movements,Krishna V. Shenoy et al,https://www.sciencedirect.com/science/article/pii/S0092867420302208
+speech-to-text,2023,invasive,1.5,intention,speech,14,articulatory movement,Krishna V. Shenoy et al,https://www.biorxiv.org/content/10.1101/2023.01.21.524489v1.full.pdf
+Speech synthesis,2019,invasive,1.5,intention,speech,4,articulatory movement,David A. Moses et al,https://www.nejm.org/doi/full/10.1056/nejmoa2027540
+WN c-VEP,2023,noninvasive,"0.5 ",sensory tagging,visual,7.5,visual gaze direction,this study,
+intracranial m-VEP,2022,invasive,0.5,sensory tagging,visual,1.2,visual gaze direction,Bo Hong,https://doi.org/10.1016/j.neuroimage.2022.119363

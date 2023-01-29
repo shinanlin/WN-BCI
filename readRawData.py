@@ -10,12 +10,13 @@ from autoreject import AutoReject
 import matplotlib.pyplot as plt
 
 class Config():
-    def __init__(self, exp='exp-1', srate=250, tstart=0, winLEN=1, event_dict={'wn': 1, 'ssvep': 2, 'rest': 3}) -> None:
+    def __init__(self, exp='exp-1', srate=250, tstart=0, winLEN=1,refreshRate=60, event_dict={'wn': 1, 'ssvep': 2, 'rest': 3}) -> None:
         self.exp = exp
         self.srate = srate
         self.tstart = tstart
         self.winLEN = winLEN
         self.event_dict = event_dict
+        self.refreshRate = refreshRate
         pass
 class cntReader():
     """
@@ -64,6 +65,7 @@ class cntReader():
                 folder = sub+os.sep+datesRecording
                 fileList = os.listdir(folder)
 
+                RAWs=[]
                 for sessionName in fileList:
 
                     if os.path.splitext(sessionName)[-1] == '.cnt':
@@ -71,9 +73,13 @@ class cntReader():
                         # read continous raw data
                         raw = self._getSession(sessionName)
                         # split continous data into epoch
-                        epoch = self.epochSplit(raw)
+                        RAWs.append(raw)
+                    
+                recordings = mne.concatenate_raws(RAWs)
 
-                        self.sessions.append(epoch)
+                epoch = self.epochSplit(recordings)
+
+                self.sessions.append(epoch)
 
             if self.sessions != []:
                 sessions = np.concatenate(self.sessions)
@@ -168,17 +174,20 @@ class cntReader():
         events, event_dict = mne.events_from_annotations(raw)
         # discard events
         # 255是结束trigger,去掉结束trigger
-
+        # check consective trigger
+        events = events[np.diff(events[:,0],prepend=0)>1]
         x = raw.get_data()[-1]
         onset = np.squeeze(np.argwhere(np.diff(x)>0))
-        events[:, 0] = onset[:len(events)]
+        if len(events)>len(onset):
+            events[:len(onset), 0] = onset[:]
+        else:
+            events[:, 0] = onset[:len(events)]
 
         return event_dict, events
 
     def defineEvent(self, raw):
         event_dict, events = self.correctEvent(raw)
 
-        # events = events[20:,]
         # 把符合条件的event取出来
         Events = []
 
@@ -211,6 +220,7 @@ class datasetMaker():
         self.exp = config.exp
         self.srate=config.srate
         self.winLEN = config.winLEN
+        self.refreshRate = config.refreshRate
         self.sampleLEN = round(self.srate*self.winLEN)
         self.tstart = config.tstart
         cwd = sys.path[0]
@@ -224,16 +234,23 @@ class datasetMaker():
         loader.readRaw()
 
     def readSTI(self,fileName):
+        from scipy.signal import resample
 
-        path = self.stiAdd + os.sep + fileName
-        S = scio.loadmat(path)
+        personalSTIFile = fileName.split('.')[0]+'.mat'
+        path = self.stiAdd + os.sep
+        STIs = os.listdir(path)
+
+        if 'STI.mat' in STIs:
+            S = scio.loadmat(path+os.sep+'STI.mat')
+        else:
+            S = scio.loadmat(path+os.sep+personalSTIFile)
+            S['WN'] = S['WN'][:40,:30]
         STI = dict()
         for key in self.config.event_dict.keys():
             if key in S.keys():               
                 seq = S[key]
-                factor = self.srate//(np.shape(seq)[-1]//self.winLEN)
-                STI[key] = np.repeat(seq, factor, axis=-1)
-        # label = S['label']
+                stiT = (np.shape(seq)[-1]/self.refreshRate)
+                STI[key] = resample(seq, int(stiT*self.srate), axis=-1)
         return STI
 
 
@@ -257,8 +274,7 @@ class datasetMaker():
             with open(path, "rb") as fp:
                 sessions = pickle.load(fp)
 
-            STI = self.readSTI('STI.mat')
-            # labels = np.tile(label,6)
+            STI = self.readSTI(filename)
             sub = dict()
             for session in sessions:
                 tag,X,y,chnNames = session
@@ -266,10 +282,7 @@ class datasetMaker():
                     s = STI[tag]
                 else:
                     s = []
-                # if tag == 'wn':
-                #     s, y = STI, labels[labels > 160]
-                # else:
-                #     s, y = STI, labels[labels <= 160]
+
                 exp = dict(
                     X = X,
                     y = y,
@@ -298,10 +311,22 @@ if __name__ == '__main__':
     #     high=np.arange(81, 121, step=1)
     # )
 
-    event_dict = dict(
-        wn=np.arange(1,161,1)
-    )
+    # event_dict = dict(
+    #     WN=np.arange(1,161,1)
+    # )
     
-    config = Config(exp='sweep',srate=240,winLEN=1,event_dict=event_dict)
+    # event_dict = dict(
+
+    #     speller=np.arange(21,61,1),
+    #     single=np.arange(1,21,1),
+    #     ssvep=np.arange(61,121,1)
+    # )    
+
+    event_dict = dict(
+        WN=np.arange(1,41,1),
+        SSVEP=np.arange(41,81,1)
+    )
+
+    config = Config(exp='compare',srate=250,winLEN=0.5,event_dict=event_dict)
     curryMaker = datasetMaker(config)
     curryMaker.ensemble()

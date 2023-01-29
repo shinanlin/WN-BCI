@@ -45,10 +45,13 @@ class Code2EEG():
         N = np.shape(X)[-1]
         # TDCA
         enhancer = TDCA(srate=self.srate, winLEN=N /
-                        self.srate, montage=len(self._classes), n_band=self.band, n_components=self.component)
+                        self.srate, montage=len(self._classes), n_band=self.band, n_components=self.component,lag=0)
 
         # input: enhanced response and the respective STI
-        enhanced = enhancer.fit_transform(X, y)
+        enhancer.fit(X, y)
+        enhancer.filters = np.abs(enhancer.filters)
+        enhanced = enhancer.transform(X,y)
+        
         # reshaped enhance to (fb * components)
         STI = np.concatenate([self.STI[self.montage == i]
                               for i in self._classes])

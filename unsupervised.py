@@ -9,15 +9,16 @@ import os
 import pandas as pd
 # %%
 # define parameters
-srate = 240
+srate = 250
 refreshrate = 60
 poolSize = 0
 testSize = 40
 trainSizes = np.arange(10,100,20)
 
 tmin,tmax = 0,0.8
-n_band =3
+n_band = 3
 p=0.96
+lag = 0.14
 winLENs = np.arange(0.2, 1, step=.1)
 
 chnNames = ['PZ', 'PO5', 'POZ', 'PO4', 'PO6', 'O1', 'OZ','O2']
@@ -71,7 +72,7 @@ for sub in tqdm(wholeset):
             templates = code2EEG.predict(S=S_test)
 
             # inifinte large of the tenplates but just sample small portion of it for validation
-            model = Match(winLEN=winLEN,srate=srate,lag=0.14)
+            model = Match(winLEN=winLEN,srate=srate,lag=lag)
             model.fit(R_,y_test)
             acc = model.score(X_,y_test)
 

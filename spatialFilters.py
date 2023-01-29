@@ -7,7 +7,7 @@ from numpy.linalg.linalg import qr
 import scipy.linalg as la
 
 from scipy.signal.filter_design import freqs
-from sklearn.cross_decomposition import CCA
+# from sklearn.cross_decomposition import CCA
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from tqdm import tqdm
 import warnings
@@ -412,7 +412,6 @@ class TDCA(TRCA):
         return self
     
     def transform(self, X, y=None):
-        from scipy.stats import zscore
         """
         Parameters
         ----------
@@ -428,7 +427,6 @@ class TDCA(TRCA):
 
         if y is None:
             y = np.arange(X.shape[0])
-
         n_class = len(np.unique(y))
         enhanced = np.zeros((n_class, self.n_band, self.n_components,self.winLEN))
 
@@ -441,8 +439,23 @@ class TDCA(TRCA):
         # reshape
         enhanced = np.reshape(enhanced,(n_class,self.n_band,-1))
 
-        return zscore(enhanced,axis=-1)
+        return enhanced
 
+    def filter(self,X):
+
+        X = X - np.mean(X,axis=-1,keepdims=True)
+        X = X[:,:,self.lag:self.lag+self.winLEN]
+        
+        X_ = []
+
+        for x in X:
+            for filter in self.filters:
+                x_ = filter.T.dot(x)
+                X_.append(x_)
+
+        X_ = np.stack(X_)
+
+        return X_
 
     def predict(self, X):
 
@@ -697,5 +710,6 @@ if __name__ == '__main__':
     model = TDCA(winLEN=1,srate=240)
     # model.fit(X,y)
     model.fit(X,y)
+    model.filter(X)
 
 
