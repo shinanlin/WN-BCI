@@ -22,10 +22,10 @@ tmin,tmax = 0,0.5
 n_band = 5
 p=0.96
 blockNUM=6
-winLENs = [1]
+winLENs = [0.8]
 winLEN = 1
-lag = 0
-pools = np.logspace(1, 4, num=20).astype(int)
+lag = 0.14
+pools = np.logspace(2, 4, num=20).astype(int)
 
 chnNames = ['PZ','PO5', 'POZ', 'PO3','PO4', 'PO6', 'O1', 'OZ','O2']
 saveFILE = 'largeset.csv'
@@ -82,6 +82,7 @@ for sub in tqdm(wholeset):
 
         # X_: subset of data for classification
         X_ = code2EEG.enhancer.transform(X_test)
+        X_ = X_-np.mean(X_,axis=-1,keepdims=True)
 
         _class_subset = np.unique(y_test)
 

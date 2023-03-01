@@ -77,9 +77,10 @@ for sub in tqdm(wholeset):
                     'epoch':[j],
                     'class':[i]
                 })
-        f['method'] = tag
-        f['subject'] = subName
-        frames.append(f)
+                
+                f['method'] = tag
+                f['subject'] = subName
+                frames.append(f)
         
     df = pd.concat(frames, axis=0, ignore_index=True)
     add = 'results/%s/%s' % (expName, subName)
