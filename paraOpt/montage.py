@@ -43,6 +43,14 @@ with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
 
 # %%
+# add = 'results'+os.sep+expName
+
+# for fnames in os.listdir(add):
+#     f = add+os.sep+fnames+os.sep+saveFILE
+#     if os.path.exists(f):
+#         os.remove(f)
+
+# %%
 for sub in tqdm(wholeset):
 
     frames = []

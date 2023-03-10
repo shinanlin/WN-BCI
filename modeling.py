@@ -1,6 +1,7 @@
 import numpy as np
 from spatialFilters import TDCA
-from NRC import NRC
+from NRC import NRC,reverseNRC
+from scipy.stats import zscore
 from sklearn.model_selection import train_test_split
 import pickle
 
@@ -26,13 +27,19 @@ class Code2EEG():
     def _loadSTI(self, *S):
 
         from scipy.stats import zscore
+        from sklearn import preprocessing
 
         # load STI as a class attibute
         STI, y = S[0]
         self.montage = np.unique(y)
-        self.STI = np.stack([STI[y == i].mean(axis=0) for i in self.montage])
-        self.STI = zscore(self.STI, axis=-1)
-        self.STI = self.STI[:, :self.winLEN]
+        STI = np.stack([STI[y == i].mean(axis=0) for i in self.montage])
+
+        STI = STI - np.mean(STI,axis=-1,keepdims=True)
+
+        STI = preprocessing.minmax_scale(STI, axis=-1)
+
+        self.STI = STI[:, :self.winLEN]
+
 
         return
 
@@ -49,7 +56,11 @@ class Code2EEG():
 
         # input: enhanced response and the respective STI
         enhancer.fit(X, y)
-        enhancer.filters = np.abs(enhancer.filters)
+        # enhancer.filters = np.abs(enhancer.filters)
+        f = enhancer.filters[0]
+        big_i = np.argmax(np.abs(f))
+        enhancer.filters[0] = f*np.sign(f[big_i])
+
         enhanced = enhancer.transform(X,y)
         
         # reshaped enhance to (fb * components)
@@ -97,6 +108,71 @@ class Code2EEG():
         scores = np.stack(scores)
 
         return scores
+
+
+
+class EEG2Code(Code2EEG):
+
+    def __init__(self, S, srate=250, winLEN=1, tmin=0, tmax=0.5, estimator=0.98, scoring='corrcoef', padding=True, n_band=1, component=1) -> None:
+        super().__init__(S, srate, winLEN, tmin, tmax, estimator, scoring, padding, n_band, component)
+
+
+    def fit(self, X, y):
+
+        self._classes = np.unique(y)
+
+        # trim
+        X = X[:, :, :self.winLEN]
+
+        X = X - np.mean(X,axis=-1,keepdims=True)
+
+        N = np.shape(X)[-1]
+        # TDCA
+        enhancer = TDCA(srate=self.srate, winLEN=N /
+                        self.srate, montage=len(self._classes), n_band=self.band, n_components=self.component,lag=0)
+
+        enhancer.fit(X, y)
+
+        # normalize 
+        f = enhancer.filters[0]
+        big_i = np.argmax(np.abs(f))
+        enhancer.filters[0] = f*np.sign(f[big_i])        
+
+        enhanced = enhancer.transform(X,y)
+        
+
+        STI = np.concatenate([self.STI[self.montage == i]
+                              for i in self._classes])
+        STI = np.tile(STI, self.component)
+
+        regressor = reverseNRC(srate=self.srate, tmin=self.tmin,tmax=self.tmax, alpha=self.estimator)
+        regressor.fit(R=enhanced, S=STI)
+
+        self.regressor = regressor
+        self.enhancer = enhancer
+        self.enhanced = enhanced
+
+        self.trf = regressor.trf
+
+        return self
+
+
+    def predict(self, X):
+
+        X = X - np.mean(X,axis=-1,keepdims=True)
+        X = X[:, :, :self.winLEN]
+
+        enhanced = self.enhancer.transform(X)
+        enhanced = enhanced - np.mean(enhanced,axis=-1,keepdims=True)
+        enhanced = np.squeeze(enhanced)
+
+        pad = np.zeros((X.shape[0], self.padLEN))
+        enhanced = np.concatenate((enhanced, pad), axis=-1)
+
+        S_ = self.regressor.predict(enhanced)
+
+        return S_[:, :-self.padLEN]
+
 
 
 class Match():
@@ -156,7 +232,7 @@ class Match():
 
 if __name__ == '__main__':
 
-    srate = 240
+    srate = 250
     expName = 'sweep'
 
     dir = 'datasets/%s.pickle' % expName
@@ -187,8 +263,11 @@ if __name__ == '__main__':
     S_train, S_test = np.stack(
         [S[i-1] for i in y_train]), np.stack([S[i-1] for i in y_test])
 
-    model = Code2EEG(srate=240, tmin=0, tmax=0.9, S=(
-        S, np.unique(y)), component=2, estimator=0.8)
+    model = EEG2Code(srate=250, tmin=-0.5, tmax=0, S=(
+        S, np.unique(y)), component=1, estimator=0.9)
+    
+    # model = Code2EEG(srate=250, tmin=0, tmax=0.5, S=(
+    #     S, np.unique(y)), component=1, estimator=0.9)
+
     model.fit(X_train, y_train)
-    s = model.score(X_test, y_test)
-    print(s)
+    model.predict(X_train,y_train)

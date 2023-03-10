@@ -314,7 +314,16 @@ if __name__ == '__main__':
     # event_dict = dict(
     #     WN=np.arange(1,161,1)
     # )
-    
+
+    # event_dict = dict(
+    #     alpha=[253]
+    # )
+
+    # event_dict = dict(
+    #     SSVEP=np.arange(1,121,1),
+    #     WN=np.arange(121,241,1)
+    # )
+
     # event_dict = dict(
 
     #     speller=np.arange(21,61,1),
@@ -327,6 +336,6 @@ if __name__ == '__main__':
         SSVEP=np.arange(41,81,1)
     )
 
-    config = Config(exp='compare',srate=250,winLEN=0.5,event_dict=event_dict)
+    config = Config(exp='compare',srate=250,winLEN=1,event_dict=event_dict)
     curryMaker = datasetMaker(config)
     curryMaker.ensemble()

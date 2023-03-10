@@ -433,12 +433,15 @@ class TDCA(TRCA):
         fbed_X = self.augmentation(X)
         for conditionINX,condition in enumerate(np.unique(y)):
             classEvoked = fbed_X[y==condition].mean(axis=0)
-            for fbINX,(fb,filter) in enumerate(zip(classEvoked,self.filters)):
-                enhance = fb.T.dot(filter)
+            for fbINX,(fb,f) in enumerate(zip(classEvoked,self.filters)):
+                big_i = np.argmax(np.abs(f))
+                f = f*np.sign(f[big_i])
+                enhance = fb.T.dot(f)
                 enhanced[conditionINX,fbINX] = enhance.T
         # reshape
         enhanced = np.reshape(enhanced,(n_class,self.n_band,-1))
 
+        enhanced = enhanced - np.mean(enhanced,axis=-1,keepdims=True)
         return enhanced
 
     def filter(self,X):
@@ -488,7 +491,7 @@ class TDCA(TRCA):
 
             rho = np.dot(self.fb_coef, r)
             self.rho[epochINX] = rho
-
+            
             target = np.nanargmax(rho)
             rhoNoise = np.delete(rho, target)
             rhoNoise = np.delete(rhoNoise, np.isnan(rhoNoise))
@@ -571,7 +574,7 @@ class TDCA(TRCA):
 
     def filterbank(self, x, fbINX):
 
-        fbPara = [[(6, 90), (4, 100)],  # passband, stopband freqs [(Wp), (Ws)]
+        fbPara = [[(2, 90), (1, 100)],  # passband, stopband freqs [(Wp), (Ws)]
         [(14, 90), (10, 100)],
         [(22, 90), (16, 100)],
         [(30, 90), (24, 100)],
@@ -625,8 +628,6 @@ class Matching(fbCCA):
         rf = NRC(srate=self.srate,tmin=self.tmin,tmax=self.tmax)
         rf.fit()
         
-
-        NRC
 
         return self
 

@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from mne.decoding import ReceptiveField
 import os
+from scipy.stats import zscore
 # from eelbrain import *
 import pickle
 from scipy import stats,signal
@@ -71,6 +72,73 @@ class NRC(ReceptiveField):
 
         return zscore(np.stack(R),axis=-1)
 
+
+
+class reverseNRC(NRC):
+    def __init__(self, srate, tmin=-0.5, tmax=1, alpha=0.9, fill_mean=True) -> None:
+        super().__init__(srate, tmin, tmax, alpha, fill_mean)
+
+    def fit(self, S, R):
+
+        epochNUM,chnNUM,_  = R.shape
+
+        laggedLEN = len(_times_to_delays(self.tmin,self.tmax,self.srate))
+        Kernel = np.zeros((epochNUM,chnNUM,laggedLEN))
+        Cov_sr = np.zeros((epochNUM,chnNUM,laggedLEN))
+
+        S = np.concatenate([S[:,np.newaxis,:] for _ in range(chnNUM)],axis=1)
+
+        for epochINX,(epoch,sti) in enumerate(zip(R,S)):
+            
+            for chnINX,(r,s) in enumerate(zip(epoch,sti)):
+                
+                r = r[:,np.newaxis]
+
+                laggedR = _delay_time_series(r, self.tmin, self.tmax,self.srate,fill_mean=self.fill_mean).squeeze()
+
+                Cov_rs = laggedR.T.dot(laggedR)
+
+                u,sigma,v = np.linalg.svd(Cov_rs)
+                for i in range(len(sigma)):
+                    if sum(sigma[0:len(sigma)-i]/sum(sigma)) < self.alpha:
+                        sigma = 1/sigma
+                        sigma[len(sigma)-i:] = 0
+                        break
+                sigma_app = np.diag(sigma)
+                inv_C = u.dot(sigma_app).dot(v)
+                
+                Cov_sr[epochINX, chnINX] = (laggedR.T).dot(s)
+                Kernel[epochINX, chnINX] = (inv_C).dot(laggedR.T).dot(s)
+
+        self.kernel = Kernel
+        self.Csr = Cov_rs
+
+        trf = zscore(Kernel,axis=-1)
+        self.trf = trf.mean(axis=(0,1))
+
+        return self
+
+    def predict(self, R):
+
+        from scipy.stats import zscore
+        from sklearn import preprocessing
+        S = []
+        for r in R:
+
+            r = zscore(r,axis=0)
+            r = r[:,np.newaxis]
+
+            rr = _delay_time_series(r,tmin=self.tmin,tmax=self.tmax,sfreq=self.srate,fill_mean=True).squeeze()
+
+            s = rr.dot(self.trf.T)
+            
+            S.append(s.T)
+
+
+        S = np.stack(S)
+        S = preprocessing.minmax_scale(S, axis=-1)
+
+        return S
 
 class RegularizedRF(NRC):
     def __init__(self, srate, tmin=-0.5, tmax=1, alpha=1e4,mTRF=False) -> None:

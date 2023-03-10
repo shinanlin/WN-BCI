@@ -11,6 +11,19 @@ import pandas as pd
 from tensorpac.utils import ITC
 
 
+def rho2Confidence(rho):
+
+    from statsmodels.stats.weightstats import ttest_ind
+
+    H = np.zeros_like(rho)
+    for i,r in enumerate(rho):
+        for j,k in enumerate(r):
+            rest = np.delete(r,j)
+            _, H[i,j], _ = ttest_ind(rest, [k])
+
+    return H
+
+
 def codeDistance(codeset):
     
     n_code = codeset.shape[0]
@@ -43,17 +56,18 @@ def ITR(N, P, winBIN):
 
 def returnFFT(s,srate=250):
 
-    s = zscore(s,axis=-1)
+    s = s - np.mean(s,axis=-1,keepdims=True)
+    
     N = s.shape[-1]
+
     T = 1/srate
-    x = np.linspace(0, N*T, N, endpoint=False)
+
     # performFFT
     fftAmp = fft(s,axis=-1)
     # take only half
     freqz = fftfreq(N, T)[:N//2]
     # norm
     fftAmp = fftAmp.T[:N//2]
-    fftAmp = 1.0/N * np.abs(fftAmp)
 
     return freqz, fftAmp.T
 
@@ -63,7 +77,7 @@ def returnPSD(s,srate=250):
     freqz, fftAmp = signal.welch(
     x=s, axis=-1, fs=srate, nperseg=s.shape[-1]//2, nfft=s.shape[-1], scaling='spectrum', window='boxcar',)
 
-    lowFre = np.argwhere((1<freqz)&(freqz<80)).squeeze()
+    lowFre = np.argwhere((1<freqz)&(freqz<srate//2)).squeeze()
     freqz = freqz[lowFre]
     fftAmp = fftAmp.T
     fftAmp = fftAmp[lowFre].T
