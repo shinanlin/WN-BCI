@@ -8,7 +8,8 @@ import pandas as pd
 from scipy.signal import resample
 from tqdm import tqdm
 from compare.modeling  import Code2EEG,EEG2Code
-from compare.utils import returnFFT,returnPSD
+from compare.utils import returnFFT
+from scipy.integrate import simpson
 import os
 
 #%%
@@ -32,7 +33,7 @@ saveFILE = 'info.csv'
 
 #%% load dataset
 
-dir = 'datasets/%s.pickle' % expName
+dir = 'data/datasets/%s.pickle' % expName
 with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
 
@@ -59,6 +60,7 @@ for i,sub in tqdm(enumerate(wholeset)):
     subName = sub['name']
 
     _class = np.unique(y)
+    N = X.shape[-1]
     STI = np.concatenate([S[_class == i] for i in y])
 
     #%% build backward model
@@ -75,8 +77,7 @@ for i,sub in tqdm(enumerate(wholeset)):
     sN = STI-sEst 
     freqz, STI_F = returnFFT(STI)
     freqz, sEst_F = returnFFT(sEst)
-    freqz, sN_F = returnFFT(sN)
-
+    freqz, sN_F = returnFFT(sN) 
 
     # calculate the complecx conjugate
     conj_sEst, conj_sN = np.conjugate(sEst_F), np.conjugate(sN_F)
@@ -86,8 +87,11 @@ for i,sub in tqdm(enumerate(wholeset)):
     # <trial average>
     lbSNR = covF_SS.mean(axis=0)/cov_NN.mean(axis=0)
     lbSNR[freqz > refreshrate//2] = 0
-    lbINFOrate = np.cumsum(np.log2(1+lbSNR))
-    lbINFO = np.sum(np.log2(1+lbSNR))
+    logSNR = np.log2(1+lbSNR)
+    lbINFOrate = [simpson(logSNR[:n], freqz[:n])
+                  for n in np.arange(1, len(freqz), 1)]
+    lbINFOrate.insert(0,0)
+    lbINFO = lbINFOrate[-1]
 
     #%% compute the upper bound
 
@@ -109,15 +113,18 @@ for i,sub in tqdm(enumerate(wholeset)):
     freqz, nn = returnFFT(xNoise)
     freqz, xx = returnFFT(xX)
 
-    STIPower = 1/(srate*winLEN) * (np.abs(STI_F)**2)
+    STIPower = 1/(srate*N) * (np.abs(STI_F)**2)
 
-    xPower = 1/(srate*winLEN) * (np.abs(xx)**2)
-    sPower = 1/(srate*winLEN) * (np.abs(ss)**2)
-    nPower = 1/(srate*winLEN) * (np.abs(nn)**2)
+    xPower = 1/(srate*N) * (np.abs(xx)**2)
+    sPower = 1/(srate*N) * (np.abs(ss)**2)
+    nPower = 1/(srate*N) * (np.abs(nn)**2)
     
     ubSNR = sPower.mean(axis=0)/nPower.mean(axis=0)
-    ubINFOrate = np.cumsum(np.log2(1+ubSNR))
-    ubINFO = np.sum(np.log2(1+ubSNR))
+    logSNR = np.log2(1+ubSNR)
+    ubINFOrate = [simpson(logSNR[:n], freqz[:n])
+                  for n in np.arange(1, len(freqz), 1)]
+    ubINFOrate.insert(0, 0)
+    ubINFO = ubINFOrate[-1]
 
     #%% record
 
