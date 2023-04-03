@@ -95,12 +95,14 @@ for i,sub in tqdm(enumerate(wholeset)):
         sPower = (1/(srate*N)) * (np.abs(ss)**2)
         nPower = (1/(srate*N)) * (np.abs(nn)**2)
         
-        ubSNR = sPower.mean(axis=0)/nPower.mean(axis=0)
-
-        logSNR = np.log2(1+ubSNR)
+        K=5
+        ubSNR = [sPower[y==i].mean(axis=0)/nPower[y==i].mean(axis=0) for i in _class]
+        logSNR = [np.log2(1+((K-1)/K*snr-1/K)) for snr in ubSNR]
+        logSNR = np.mean(logSNR, axis=0)
         ubINFOrate = [simpson(logSNR[:n],freqz[:n]) for n in np.arange(1,len(freqz),1)]
         ubINFOrate.insert(0,0)
         ubINFO = ubINFOrate[-1]
+        ubSNR = np.mean(ubSNR,axis=0)
 
         #%% record
 

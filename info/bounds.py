@@ -1,6 +1,7 @@
 
 import sys
 sys.path.append('.')
+sys.path.append('./compare')
 
 import numpy as np
 import pickle
@@ -17,7 +18,7 @@ import os
 
 #%%
 # parameters
-srate = 250
+srate = 500
 winLEN = 1 
 n_band = 1
 n_component = 1
@@ -74,10 +75,10 @@ for i,sub in tqdm(enumerate(wholeset)):
     sEst = model.predict(X)
 
     # noise of stimulus
-    sN = STI-sEst 
-    freqz, STI_F = returnFFT(STI)
-    freqz, sEst_F = returnFFT(sEst)
-    freqz, sN_F = returnFFT(sN) 
+    sN = STI - sEst 
+    freqz, STI_F = returnFFT(STI,srate=srate)
+    freqz, sEst_F = returnFFT(sEst,srate=srate)
+    freqz, sN_F = returnFFT(sN,srate=srate) 
 
     # calculate the complecx conjugate
     conj_sEst, conj_sN = np.conjugate(sEst_F), np.conjugate(sN_F)
@@ -85,13 +86,17 @@ for i,sub in tqdm(enumerate(wholeset)):
     covF_SS = sEst_F*conj_sEst
     cov_NN = sN_F*conj_sN
     # <trial average>
-    lbSNR = covF_SS.mean(axis=0)/cov_NN.mean(axis=0)
-    lbSNR[freqz > refreshrate//2] = 0
-    logSNR = np.log2(1+lbSNR)
+    lbSNR = [covF_SS[y == i].mean(axis=0)/cov_NN[y == i].mean(axis=0) for i in _class]
+    logSNR = [np.log2(1+snr) for snr in lbSNR]
+    logSNR = np.mean(logSNR,axis=0)
+    logSNR[freqz >= refreshrate//2] = 0
     lbINFOrate = [simpson(logSNR[:n], freqz[:n])
                   for n in np.arange(1, len(freqz), 1)]
     lbINFOrate.insert(0,0)
     lbINFO = lbINFOrate[-1]
+    lbSNR = np.mean(lbSNR,axis=0)
+    lbSNR[freqz >= refreshrate//2] = 0
+
 
     #%% compute the upper bound
 
@@ -103,15 +108,15 @@ for i,sub in tqdm(enumerate(wholeset)):
     
     xNoise = xX - aveEvoked
 
-    freqz, rF = returnFFT(np.squeeze(model.enhanced))
-    freqz, S_F = returnFFT(model.STI)
+    freqz, rF = returnFFT(np.squeeze(model.enhanced),srate=srate)
+    freqz, S_F = returnFFT(model.STI,srate=srate)
     rConjugate = np.conjugate(rF)
     # Hf: frequency TRF
     Hf = (rConjugate*S_F).mean(axis=0)/(rConjugate*rF).mean(axis=0)
 
-    freqz, ss = returnFFT(aveEvoked)
-    freqz, nn = returnFFT(xNoise)
-    freqz, xx = returnFFT(xX)
+    freqz, ss = returnFFT(aveEvoked,srate=srate)
+    freqz, nn = returnFFT(xNoise,srate=srate)
+    freqz, xx = returnFFT(xX,srate=srate)
 
     STIPower = 1/(srate*N) * (np.abs(STI_F)**2)
 
@@ -119,12 +124,17 @@ for i,sub in tqdm(enumerate(wholeset)):
     sPower = 1/(srate*N) * (np.abs(ss)**2)
     nPower = 1/(srate*N) * (np.abs(nn)**2)
     
-    ubSNR = sPower.mean(axis=0)/nPower.mean(axis=0)
-    logSNR = np.log2(1+ubSNR)
+    # ubSNR = sPower.mean(axis=0)/nPower.mean(axis=0)
+    K=6
+    ubSNR = [sPower[y==i].mean(axis=0)/nPower[y==i].mean(axis=0) for i in _class]
+    logSNR = [np.log2(1+((K-1)/K*snr-1/K)) for snr in ubSNR]
+    logSNR = np.mean(logSNR,axis=0)
+    # logSNR = np.log2(1+ubSNR)
     ubINFOrate = [simpson(logSNR[:n], freqz[:n])
                   for n in np.arange(1, len(freqz), 1)]
     ubINFOrate.insert(0, 0)
     ubINFO = ubINFOrate[-1]
+    ubSNR = np.mean(ubSNR,axis=0)
 
     #%% record
 
@@ -137,10 +147,10 @@ for i,sub in tqdm(enumerate(wholeset)):
         'ubrate': np.abs(ubINFOrate),
         'SS': np.abs(covF_SS).mean(axis=0),
         'NN': np.abs(cov_NN).mean(axis=0),
-        'sPower':np.abs(sPower).mean(axis=0),
-        'nPower':np.abs(nPower).mean(axis=0),
+        'sPower':sPower.mean(axis=0),
+        'nPower':nPower.mean(axis=0),
         'Hf': np.abs(Hf),
-        'X':np.abs(xPower).mean(axis=0),
+        'X':xPower.mean(axis=0),
         'STI':np.abs(STIPower).mean(axis=0)
         
     })
