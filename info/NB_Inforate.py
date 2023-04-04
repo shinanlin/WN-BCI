@@ -19,7 +19,7 @@ srate = 250
 n_band = 1
 n_component = 1
 
-expName = 'compare'
+expName = 'NBB'
 tags = ['WN','SSVEP']
 saveFILE = 'NaB_info.csv'
 
@@ -30,8 +30,6 @@ with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
 
 chnNames = ['PZ', 'PO3','PO5', 'POZ', 'PO4', 'PO6', 'O1', 'OZ','O2']
-
-chnNames = wholeset[0]['channel']
 chnINX = [wholeset[0]['channel'].index(i) for i in chnNames]
 
 #%% refresh
@@ -63,22 +61,22 @@ for i,sub in tqdm(enumerate(wholeset)):
         winLEN = N/srate
         #%% build backward model
 
-        model = vanilla(winLEN=winLEN,lag=0)
+        model = vanilla(winLEN=winLEN,lag=0,n_band=1)
         aveEvoked = model.fit_transform(X,y)
         xX = model.transform(X)
         aveEvoked, xX = np.squeeze(aveEvoked), np.squeeze(xX)
 
         # %% padding 
-        if winLEN<1:
-            pad = np.zeros_like(aveEvoked)
-            aveEvoked = np.concatenate([aveEvoked,pad],axis=-1)
+        # if winLEN<1:
+        #     pad = np.zeros_like(aveEvoked)
+        #     aveEvoked = np.concatenate([aveEvoked,pad],axis=-1)
 
-            pad = np.zeros_like(xX)
-            xX = np.concatenate([xX,pad],axis=-1)
+        #     pad = np.zeros_like(xX)
+        #     xX = np.concatenate([xX,pad],axis=-1)
 
-        if winLEN>=1:
-            aveEvoked = aveEvoked[:,:int(srate)]
-            xX = xX[:,:int(srate)]
+        # if winLEN>=1:
+        #     aveEvoked = aveEvoked[:,:int(srate)]
+        #     xX = xX[:,:int(srate)]
 
         #%% compute the upper bound
         # keep the first component
@@ -87,9 +85,9 @@ for i,sub in tqdm(enumerate(wholeset)):
         aveEvoked = np.concatenate([aveEvoked[_class == i] for i in y])
         xNoise = xX - aveEvoked
 
-        freqz, ss = returnFFT(aveEvoked)
-        freqz, nn = returnFFT(xNoise)
-        freqz, xx = returnFFT(xX)
+        freqz, ss = returnFFT(aveEvoked,srate=srate)
+        freqz, nn = returnFFT(xNoise,srate=srate)
+        freqz, xx = returnFFT(xX,srate=srate)
 
         xPower = (1/(srate*N)) * (np.abs(xx)**2)
         sPower = (1/(srate*N)) * (np.abs(ss)**2)
@@ -109,7 +107,7 @@ for i,sub in tqdm(enumerate(wholeset)):
         f = pd.DataFrame({
 
             'f': freqz,
-            'ubSNR': np.abs(ubSNR),
+            'ubSNR': ubSNR,
             'ubrate': ubINFOrate,
             'sPower':np.abs(sPower).mean(axis=0),
             'nPower':np.abs(nPower).mean(axis=0),

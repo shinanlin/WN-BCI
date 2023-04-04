@@ -49,10 +49,20 @@ for seed in range(seedNUM):
         'code': random.sample(_classes, targetNUM)
     })
 
+#%% refresh
+
+add = 'results'+os.sep+expName
+
+for fnames in os.listdir(add):
+    f = add+os.sep+fnames+os.sep+saveFILE
+    if os.path.exists(f):
+        os.remove(f)
+
 # %%
 for sub in tqdm(wholeset):
 
     frames = []
+    cMs = []
 
     subName = sub['name']
 
@@ -114,8 +124,26 @@ for sub in tqdm(wholeset):
 
                         frames.append(f)
 
-                df = pd.concat(frames, axis=0, ignore_index=True)
+                    cM = pd.DataFrame(index=model._classes,
+                                 columns=model._classes, data=model.rho)
+                    cM.reset_index(level=0, inplace=True)
+                    cM = cM.melt(id_vars='index', value_name='rho',
+                               var_name='i')
+                    cM = cM.rename(columns={'index': 'j'})
+
+                    cM['subject'] = subName
+                    cM['method'] = tag
+                    cM['mode'] = mode
+                    cM['winLEN'] = winLEN
+                    cM['cv'] = cv
+
+                    cMs.append(cM)
+
+                df1 = pd.concat(frames, axis=0, ignore_index=True)
+                df2 = pd.concat(cMs, axis=0, ignore_index=True)
+
                 add = 'results/%s/%s' % (expName, subName)
                 if not os.path.exists(add):
                     os.makedirs(add)
-                df.to_csv(add+os.sep+saveFILE)
+                df1.to_csv(add+os.sep+saveFILE)
+                df2.to_csv(add+os.sep+'LNcM.csv')
