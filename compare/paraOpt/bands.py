@@ -22,12 +22,13 @@ winLENs = [0.1, 0.2, 0.3, 0.4, 0.5]
 lag = 0.14
 
 # montages
-monatge = ['PZ', 'PO5', 'POZ', 'PO3', 'PO4', 'PO6', 'O1', 'OZ', 'O2']
+monatge = ['PZ', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'POZ', 'PO3',
+        'PO4', 'PO5', 'PO6', 'PO7', 'PO8', 'O1', 'OZ', 'O2', 'CB1', 'CB2']
 bands = np.arange(1,6)
 
 # %%
 
-dir = './datasets/%s.pickle' % expName
+dir = './data/datasets/%s.pickle' % expName
 with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
 

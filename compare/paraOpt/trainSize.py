@@ -16,7 +16,8 @@ from compare.spatialFilters import *
 # parameters
 srate = 250
 expName = 'compare'
-chnNames = ['PZ', 'PO5', 'POZ', 'PO3', 'PO4', 'PO6', 'O1', 'OZ', 'O2']
+chnNames = ['PZ', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'POZ', 'PO3',
+        'PO4', 'PO5', 'PO6', 'PO7', 'PO8', 'O1', 'OZ', 'O2', 'CB1', 'CB2']
 n_band = 5
 targetNUM = 40
 saveFILE = 'trainSize.csv'
@@ -25,7 +26,7 @@ lag = 0.14
 trainSizes = np.arange(2,7)
 # %%
 
-dir = './datasets/%s.pickle' % expName
+dir = './data/datasets/%s.pickle' % expName
 with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
 

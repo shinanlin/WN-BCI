@@ -4,7 +4,7 @@ sys.path.append('.')
 from scipy.stats import zscore
 import pickle
 import numpy as np
-import pandas as pds
+import pandas as pd
 import os
 from tqdm import tqdm
 from compare.spatialFilters import *
@@ -15,7 +15,8 @@ import compare.utils as utils
 # parameters
 srate = 250
 expName = 'compare'
-chnNames = ['PZ', 'PO5', 'POZ', 'PO3', 'PO4', 'PO6', 'O1', 'OZ', 'O2']
+chnNames = ['PZ', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'POZ',
+            'PO3', 'PO4', 'PO5', 'PO6', 'PO7', 'PO8', 'O1', 'OZ', 'O2', 'CB1', 'CB2']
 seedNUM = int(1)
 n_band = 1
 targetNUM = 40

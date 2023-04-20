@@ -38,7 +38,7 @@ montageNames = ['Central occipital',
                 'classical', 'Occipital', 'Parieto-occipital','All']
 # %%
 
-dir = './datasets/%s.pickle' % expName
+dir = './data/datasets/%s.pickle' % expName
 with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
 
@@ -72,7 +72,6 @@ for sub in tqdm(wholeset):
             # classification
             X = np.transpose(X, axes=(1, 0, -2, -1))
             y = np.transpose(y, axes=(-1, 0))
-            
             
 
             for (monatge,monatgeName) in zip(montages,montageNames):

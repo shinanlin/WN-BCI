@@ -1,18 +1,11 @@
 import sys
 sys.path.append('.')
-import matplotlib.pyplot as plt
-from scipy import rand
-import seaborn as sns
-from mne.decoding import ReceptiveField
 import pickle
 import numpy as np
 import pandas as pd
 import os
 from tqdm import tqdm
-from scipy.stats import zscore
-from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.model_selection import LeaveOneOut
-from scipy.stats import stats
 import compare.utils as utils
 from compare.spatialFilters import *
 import random
@@ -29,14 +22,13 @@ n_band=5
 targetNUM = 40
 codespace = 40
 saveFILE = 'best.csv'
-winLENs = [0.1,0.2]
+winLENs = np.arange(0.02,0.24,0.02)
 lag = 0.14
-best = ['yangyuxing','fanzixiao','libowen', 'zhouyuqing','yaofeifan']
-
+best = ['yangyuxing','fanzixiao','jingyi', 'zhouyuqing','yaofeifan']
 
 # %%
 
-dir = './datasets/%s.pickle' % expName
+dir = './data/datasets/%s.pickle' % expName
 with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
 # %%  
@@ -106,7 +98,7 @@ for sub in tqdm(wholeset):
                         f = pd.DataFrame({
                             'accuracy': [accuracy],
                             'winLEN': [winLEN],
-                            'ITR':[utils.ITR(targetNUM,accuracy,winLEN-0.5)],
+                            'ITR':[utils.ITR(targetNUM,accuracy,winLEN-0.5)/60],
                             'method': [tag],
                             'cv': [cv],
                             'seed': [codeset['seed']],

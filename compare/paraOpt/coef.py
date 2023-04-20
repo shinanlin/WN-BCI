@@ -22,17 +22,14 @@ winLEN = .2
 lag = 0.14
 
 # montages
-monatge = ['PZ', 'PO5', 'POZ', 'PO3', 'PO4', 'PO6', 'O1', 'OZ', 'O2']
+monatge = ['PZ', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'POZ', 'PO3','PO4', 'PO5', 'PO6', 'PO7', 'PO8', 'O1', 'OZ', 'O2', 'CB1', 'CB2']
 
-# %%
 
 # %%
 
 dir = './datasets/%s.pickle' % expName
 with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
-
-
 
 # %%
 for sub in tqdm(wholeset):

@@ -18,19 +18,18 @@ import os
 
 #%%
 # parameters
-srate = 500
-winLEN = 1 
+srate = 250
+winLEN = 0.5 
 n_band = 1
 n_component = 1
 p = 0.95
 refreshrate = 60
 
-tmin = -0.5
+tmin = -0.3
 tmax = 0
-expName = 'sweep'
-tag = 'wn'
+expName = 'compare'
+tag = 'WN'
 saveFILE = 'info.csv'
-
 
 #%% load dataset
 
@@ -38,7 +37,8 @@ dir = 'data/datasets/%s.pickle' % expName
 with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
 
-chnNames = ['PZ', 'PO3','PO5', 'POZ', 'PO4', 'PO6', 'O1', 'OZ','O2']
+chnNames  = ['PZ', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'POZ', 'PO3',
+                       'PO4', 'PO5', 'PO6', 'PO7', 'PO8', 'O1', 'OZ', 'O2', 'CB1', 'CB2']
 chnINX = [wholeset[0]['channel'].index(i) for i in chnNames]
 
 #%% refresh
@@ -96,7 +96,6 @@ for i,sub in tqdm(enumerate(wholeset)):
     lbINFO = lbINFOrate[-1]
     lbSNR = np.mean(lbSNR,axis=0)
     lbSNR[freqz >= refreshrate//2] = 0
-
 
     #%% compute the upper bound
 

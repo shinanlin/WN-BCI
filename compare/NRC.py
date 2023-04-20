@@ -58,19 +58,20 @@ class NRC(ReceptiveField):
 
     def predict(self, S):
 
-        from scipy.stats import zscore
+        from sklearn.preprocessing import minmax_scale
+
         R = []
         for s in S:
-            s = zscore(s)
 
             s = s[:,np.newaxis]
             ss = _delay_time_series(s,tmin=self.tmin,tmax=self.tmax,sfreq=self.srate,fill_mean=True).squeeze()
-
             r = ss.dot(self.trf.T)
-            # norm_r = zscore(r.T,axis=-1)
+            r = minmax_scale(r)
             R.append(r.T)
 
-        return zscore(np.stack(R),axis=-1)
+        R = np.stack(R)
+        R = R - np.mean(R,axis=-1,keepdims=True)
+        return R
 
 
 

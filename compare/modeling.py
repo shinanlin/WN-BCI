@@ -1,8 +1,8 @@
 import numpy as np
-from compare.spatialFilters import TDCA
-from compare.NRC import NRC,reverseNRC
-from scipy.stats import zscore
+from spatialFilters import vanilla
+from NRC import NRC,reverseNRC
 from sklearn.model_selection import train_test_split
+from collections import Counter
 import pickle
 
 class Code2EEG():
@@ -26,7 +26,6 @@ class Code2EEG():
 
     def _loadSTI(self, *S):
 
-        from scipy.stats import zscore
         from sklearn import preprocessing
 
         # load STI as a class attibute
@@ -36,7 +35,7 @@ class Code2EEG():
 
         STI = STI - np.mean(STI,axis=-1,keepdims=True)
 
-        STI = preprocessing.minmax_scale(STI, axis=-1)
+        STI = preprocessing.minmax_scale(STI)
 
         self.STI = STI[:, :self.winLEN]
 
@@ -50,19 +49,24 @@ class Code2EEG():
         # trim
         X = X[:, :, :self.winLEN]
         N = np.shape(X)[-1]
-        # TDCA
-        enhancer = TDCA(srate=self.srate, winLEN=N /
-                        self.srate, montage=len(self._classes), n_band=self.band, n_components=self.component,lag=0)
+        if np.all([k > 1 for k in Counter(y).values()]):
+            # TDCA
+            enhancer = vanilla(srate=self.srate, winLEN=N /
+                            self.srate, montage=len(self._classes), n_band=self.band, n_components=self.component,lag=0)
 
-        # input: enhanced response and the respective STI
-        enhancer.fit(X, y)
-        # enhancer.filters = np.abs(enhancer.filters)
-        f = enhancer.filters[0]
-        big_i = np.argmax(np.abs(f))
-        enhancer.filters[0] = f*np.sign(f[big_i])
+            # input: enhanced response and the respective STI
+            enhancer.fit(X, y)
+            # enhancer.filters = np.abs(enhancer.filters)
+            f = enhancer.filters[0]
+            big_i = np.argmax(np.abs(f))
+            enhancer.filters[0] = f*np.sign(f[big_i])
 
-        enhanced = enhancer.transform(X,y)
-        
+            enhanced = enhancer.transform(X,y)
+            self.enhancer = enhancer
+            self.enhanced = enhanced
+        else:
+            enhanced = X
+
         # reshaped enhance to (fb * components)
         STI = np.concatenate([self.STI[self.montage == i]
                               for i in self._classes])
@@ -73,8 +77,6 @@ class Code2EEG():
         regressor.fit(R=enhanced, S=STI)
 
         self.regressor = regressor
-        self.enhancer = enhancer
-        self.enhanced = enhanced
         self.trf = regressor.trf
 
         return self
@@ -128,8 +130,11 @@ class EEG2Code(Code2EEG):
 
         N = np.shape(X)[-1]
         # TDCA
-        enhancer = TDCA(srate=self.srate, winLEN=N /
+
+        enhancer = vanilla(srate=self.srate, winLEN=N /
                         self.srate, montage=len(self._classes), n_band=self.band, n_components=self.component,lag=0)
+        # enhancer = TDCA(srate=self.srate, winLEN=N /
+        #                 self.srate, montage=len(self._classes), n_band=self.band, n_components=self.component,lag=0)
 
         enhancer.fit(X, y)
 
@@ -235,7 +240,7 @@ if __name__ == '__main__':
     srate = 250
     expName = 'sweep'
 
-    dir = 'datasets/%s.pickle' % expName
+    dir = 'data/datasets/%s.pickle' % expName
     winLENs = np.arange(0.2, 1, step=.2)
     with open(dir, "rb") as fp:
         wholeset = pickle.load(fp)

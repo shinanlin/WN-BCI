@@ -1,13 +1,12 @@
 import numpy as np
 import scipy.linalg as la
-
 from scipy import linalg
 from sklearn.metrics import accuracy_score
 from scipy import signal
 import math
 # from NRC import NRC
 from statsmodels.stats.weightstats import ttest_ind
-
+from sklearn.cross_decomposition import CCA
 class TRCA():
 
     def __init__(self, n_components=1, n_band=1, montage=40, winLEN=2, lag=0.14,srate=250):
@@ -236,13 +235,13 @@ class TRCA():
 
 
 class fbCCA():
-    def __init__(self, n_components=1, n_band=5, srate=250, conditionNUM=20, lag=35, winLEN=2):
+    def __init__(self, n_components=1, n_band=5, srate=250, conditionNUM=40, lag=35, winLEN=2):
         self.n_components = n_components
         self.n_band = n_band
         self.srate = srate
         self.conditionNUM = conditionNUM
         self.montage = np.linspace(0, conditionNUM-1, conditionNUM).astype('int64')
-        self.frequncy_info = np.linspace(8, 17.5, num=self.conditionNUM)
+        self.frequncy_info = np.linspace(8, 15.8, num=self.conditionNUM)
 
         self.lag = lag
         self.winLEN = int(self.srate*winLEN)
@@ -399,6 +398,8 @@ class TDCA(TRCA):
         return self
     
     def transform(self, X, y=None):
+
+        from sklearn import preprocessing
         """
         Parameters
         ----------
@@ -424,11 +425,13 @@ class TDCA(TRCA):
                 big_i = np.argmax(np.abs(f))
                 f = f*np.sign(f[big_i])
                 enhance = fb.T.dot(f)
+                # enhance = preprocessing.minmax_scale(enhance)
                 enhanced[conditionINX,fbINX] = enhance.T
         # reshape
         enhanced = np.reshape(enhanced,(n_class,self.n_band,-1))
 
         enhanced = enhanced - np.mean(enhanced,axis=-1,keepdims=True)
+        
         return enhanced
 
     def filter(self,X):
@@ -595,6 +598,161 @@ class TDCA(TRCA):
         u = u[:, :rank]
         u /= s[:rank]
         return (u @ vh[:rank]).conj().T
+    
+
+class vanilla(TDCA):
+    def __init__(self, n_components=1, n_band=1, montage=40, winLEN=2, lag=0.14, srate=250):
+        super().__init__(n_components, n_band, montage, winLEN, lag, srate)
+
+    def filterbank(self, x, fbINX):
+        
+        fbPara = [[(2, 120), (1, 125)]]
+
+        nrate = self.srate/2
+
+        pBand,sBand = fbPara[fbINX]
+        Wp = [pBand[0]/nrate, pBand[1]/nrate]
+        Ws = [sBand[0]/nrate, sBand[1]/nrate]
+
+        # design filter parameters
+        [N, Wn] = signal.cheb1ord(Wp, Ws, 3, 40)
+        [B, A] = signal.cheby1(N, 0.5, Wn, 'bandpass')
+        
+        if len(np.shape(x)) == 2:
+            x = x[np.newaxis,:,:]
+        # filtering
+        filtered = signal.filtfilt(B, A, x,axis=-1)
+        filtered = x
+        return np.transpose(filtered,(1,2,0))
+
+
+class LN(TDCA):
+    def __init__(self, S, n_components=1, n_band=1, montage=40, winLEN=2, lag=0.14, srate=250,mode='full',tmin=0,tmax=0.25,estimator=0.98):
+
+        self._loadSTI(*S)
+        super().__init__(n_components, n_band, montage, winLEN, lag, srate)
+        self.mode = mode
+        self.tmin = tmin
+        self.tmax = tmax
+        self.estimator = estimator
+
+    def _loadSTI(self, *S):
+
+        from sklearn import preprocessing
+
+        # load STI as a class attibute
+        STI, y = S
+        self.montage = np.unique(y)
+        STI = np.stack([STI[y == i].mean(axis=0) for i in self.montage])
+
+        STI = STI - np.mean(STI, axis=-1, keepdims=True)
+
+        STI = preprocessing.minmax_scale(STI, feature_range=(0, 0.1))
+
+        self.STI = STI
+
+        return
+
+
+    def fit(self, X, y):
+        
+        from modeling import NRC
+        # compute spatial filter
+        super().fit(X,y)
+
+        # normalize spatial filter
+
+        X_ = self.transform(X,y)
+
+        newFilter = np.zeros_like(self.filters)
+        for fbINX, f in enumerate(self.filters):
+            big_i = np.argmax(np.abs(f))
+            f = f*np.sign(f[big_i])
+            newFilter[fbINX] = f
+        self.filters = newFilter
+
+        STI = np.concatenate([self.STI[self.montage == i]
+                              for i in self._classes])
+        
+        STI = np.squeeze(STI)
+        regressor = NRC(srate=self.srate, tmin=self.tmin,
+                        tmax=self.tmax, alpha=self.estimator)
+        regressor.fit(R=X_, S=STI[:,self.lag:self.lag+self.winLEN])
+
+        padN = int(0.2*self.srate)
+        pad = np.zeros((STI.shape[0], padN))
+        STI = np.concatenate((pad, STI), axis=-1)
+        respEst = regressor.predict(STI)
+
+        self.linear = respEst[..., padN+self.lag:padN+self.lag+self.winLEN]
+        self.nonlinear = X_-self.linear
+        self.full = X_
+        return self
+
+    def predict(self, X):
+
+        from sklearn.preprocessing import minmax_scale
+        if len(X.shape) < 3:
+            X = np.expand_dims(X, axis=0)
+
+        result = []
+        
+        H = np.zeros(X.shape[0])
+
+        X = self.augmentation(X)
+
+        X = X[..., self.lag:self.lag+self.winLEN]
+
+        self.rho = np.zeros((X.shape[0], self.montage))
+
+        for epochINX, epoch in enumerate(X):
+
+            r = np.zeros((self.n_band, self.montage))
+
+            for (classINX, evoked) in zip(np.arange(self.montage), self.evokeds):
+
+                for fbINX, (fbEvoked, fbEpoch, filter) in enumerate(zip(evoked, epoch, self.filters)):
+                    
+                    if self.mode == 'full':
+                        rtemp = np.corrcoef((
+                            np.dot(fbEpoch.T, filter).reshape(-1),
+                            np.dot(fbEvoked.T, filter).reshape(-1)
+                        ))
+                    elif self.mode == 'linear':
+                        r1 = np.dot(fbEpoch.T, filter).reshape(-1)
+                        r1 = r1-r1.mean()
+
+                        r1 = minmax_scale(r1)
+                        rtemp = np.corrcoef((
+                            r1,
+                            self.linear[classINX,fbINX]
+                        ))
+                    elif self.mode == 'nonlinear':
+                        r1 = np.dot(fbEpoch.T, filter).reshape(-1)
+                        r1 = r1-r1.mean()
+                        r1 = minmax_scale(r1)
+                        rtemp = np.corrcoef((
+                            r1,
+                            self.nonlinear[classINX,fbINX]
+                        ))
+                    else:
+                        print('Mode not right')
+                    r[fbINX, classINX] = rtemp[0, 1]
+
+            rho = np.dot(self.fb_coef, r)
+            self.rho[epochINX] = rho
+
+            target = np.nanargmax(rho)
+            rhoNoise = np.delete(rho, target)
+            rhoNoise = np.delete(rhoNoise, np.isnan(rhoNoise))
+            _, H[epochINX], _ = ttest_ind(rhoNoise, [rho[0, target]])
+            result.append(self._classes[target])
+
+        self.confidence = H
+
+        return np.stack(result)
+
+
 class Matching(fbCCA):
 
     def __init__(self, n_components=1, n_band=5, srate=250, conditionNUM=40, lag=35, winLEN=2,tmin=0,tmax=0.5):
@@ -685,9 +843,9 @@ class gridSearch(TDCA):
 if __name__ == '__main__':
 
 
-    X = np.random.random((40,9,240))
-    y = np.arange(1,41,1)
-    S = np.random.random((40, 240))
+    X = np.random.random((80,9,250))
+    y = np.squeeze(np.tile(np.arange(1,41,1),(1,2)))
+    S = np.random.random((40, 250))
 
     filterbanks = [[(6, 90), (4, 100)],  # passband, stopband freqs [(Wp), (Ws)]
               [(14, 90), (10, 100)],
@@ -695,9 +853,8 @@ if __name__ == '__main__':
               [(30, 90), (24, 100)],
               [(38, 90), (32, 100)],]
 
-    model = TDCA(winLEN=1,srate=240)
-    # model.fit(X,y)
+    model = LN(winLEN=1,srate=250,lag=0,S=(S,np.unique(y)),n_band=5,mode='linear')
     model.fit(X,y)
-    model.filter(X)
+    model.predict(X)
 
 

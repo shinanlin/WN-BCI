@@ -1,19 +1,12 @@
 import sys
 sys.path.append('.')
 
-import matplotlib.pyplot as plt
-from scipy import rand
-import seaborn as sns
-from mne.decoding import ReceptiveField
 import pickle
 import numpy as np
 import pandas as pd
 import os
 from tqdm import tqdm
-from scipy.stats import zscore
-from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.model_selection import LeaveOneOut
-from scipy.stats import stats
 import compare.utils as utils
 from compare.spatialFilters import *
 import random
@@ -22,22 +15,23 @@ import random
 # this script is for computing the performance in general
 # parameters
 srate = 250
-expName = 'sweep'
-chnNames = ['PZ', 'PO5', 'POZ', 'PO3', 'PO4', 'PO6', 'O1', 'OZ', 'O2']
-seedNUM = int(1e3)
+expName = 'compare'
+chnNames = ['PZ', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'POZ', 'PO3',
+        'PO4', 'PO5', 'PO6', 'PO7', 'PO8', 'O1', 'OZ', 'O2', 'CB1', 'CB2']
+seedNUM = int(1)
 n_band = 5
 targetNUM = 40
-codespace = 160
+codespace = 40
 saveFILE = 'latency.csv'
-latencies = np.arange(0,0.55,0.04)
-winLENs = [0.3]
+latencies = np.arange(0.02,0.4,0.04)
+winLENs = [0.1]
 # %%
 
-dir = './datasets/%s.pickle' % expName
+dir = './data/datasets/%s.pickle' % expName
 with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
 # %%
-_classes = np.unique(wholeset[0]['wn']['y']).tolist()
+_classes = np.unique(wholeset[0]['WN']['y']).tolist()
 # plant seeds:一定要记住randoms直接返回的是抽取的标签，不是索引
 pickedSet = []
 
@@ -48,6 +42,14 @@ for seed in range(seedNUM):
         'tag': 'random',
         'code': random.sample(_classes, targetNUM)
     })
+
+# %%
+add = 'results'+os.sep+expName
+
+for fnames in os.listdir(add):
+    f = add+os.sep+fnames+os.sep+saveFILE
+    if os.path.exists(f):
+        os.remove(f)
 
 # %%
 for sub in tqdm(wholeset):
@@ -61,7 +63,7 @@ for sub in tqdm(wholeset):
     if os.path.exists(add+os.sep+saveFILE):
         pass
     else:
-        for tag in ['wn']:
+        for tag in ['WN','SSVEP']:
 
             X = sub[tag]['X'][:, chnINX]
             y = sub[tag]['y']
@@ -103,13 +105,14 @@ for sub in tqdm(wholeset):
                                 labels, np.argmax(picked_coef, axis=0))
 
                             f = pd.DataFrame({
-                                'accuracy': [accuracy],
+                                'accuracy': [score],
                                 'winLEN': [winLEN],
-                                'ITR': [utils.ITR(targetNUM, accuracy, winLEN)],
+                                'ITR': [utils.ITR(targetNUM, score, winLEN)],
                                 'method': [codeset['tag']],
                                 'cv': [cv],
                                 'latency':[lag],
                                 'seed': [codeset['seed']],
+                                'tag':[tag],
                                 'subject': [subName],
                             })
 

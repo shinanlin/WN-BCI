@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 import os
 from tqdm import tqdm
-from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.model_selection import LeaveOneOut
 import utils as utils
 from spatialFilters import *
@@ -14,19 +13,30 @@ import random
 # this script is for computing the performance in general
 # parameters
 srate = 250
-expName = 'xg120'
-chnNames = ['PZ','PO5', 'POZ', 'PO3','PO4', 'PO6', 'O1', 'OZ','O2']
+expName = 'compare'
+chnNames = ['PZ', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'POZ', 'PO3',
+            'PO4', 'PO5', 'PO6', 'PO7', 'PO8', 'O1', 'OZ', 'O2', 'CB1', 'CB2']
+
 seedNUM = int(1)
 n_band=5
 targetNUM = 40
-codespace = 120
+codespace = 40
 saveFILE = 'classification.csv'
 tags = ['SSVEP','WN']
 winLENs = [0.1,0.2,0.3,0.4,0.5]
+# winLENs = [0.02,0.04,0.06,0.08,0.1]
+
 lag = 0.14
 
 # %%
+# add = 'results'+os.sep+expName
 
+# for fnames in os.listdir(add):
+#     f = add+os.sep+fnames+os.sep+saveFILE
+#     if os.path.exists(f):
+#         os.remove(f)
+
+# %%
 dir = './data/datasets/%s.pickle' % expName
 with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
@@ -49,9 +59,8 @@ for sub in tqdm(wholeset):
     frames = []
 
     subName = sub['name']
-    
-    # chnINX = [sub['channel'].index(i) for i in chnNames]
-    chnINX = [sub['channel'].index(i) for i in sub['channel']]
+
+    chnINX = [sub['channel'].index(i) for i in chnNames]
 
     add = 'results/%s/%s' % (expName,subName)        
     if os.path.exists(add+os.sep+saveFILE):
@@ -98,7 +107,8 @@ for sub in tqdm(wholeset):
                         f = pd.DataFrame({
                             'accuracy': [accuracy],
                             'winLEN': [winLEN],
-                            'ITR':[utils.ITR(targetNUM,accuracy,winLEN)],
+                            'ITR': [utils.ITR(targetNUM, score, winLEN)],
+                            'bps': [utils.ITR(targetNUM, score, winLEN-0.5)/60],
                             'method': [tag],
                             'cv': [cv],
                             'seed': [codeset['seed']],

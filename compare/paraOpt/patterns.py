@@ -24,7 +24,7 @@ lag = 0.14
 # parameters
 
 expName = 'compare'
-dir = './datasets/%s.pickle' % expName
+dir = './data/datasets/%s.pickle' % expName
 with open(dir, "rb") as fp:
     wholeset = pickle.load(fp)
 
